@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">WoL</string>
+    <string name="widget_single">WoL action</string>
+    <string name="widget_grid">WoL actions</string>
+    <string name="widget_single_description">Runs one action</string>
+    <string name="widget_grid_description">Resizable grid of actions</string>
+    <string name="tile_1">WoL tile 1</string>
+    <string name="tile_2">WoL tile 2</string>
+    <string name="tile_3">WoL tile 3</string>
+</resources>
