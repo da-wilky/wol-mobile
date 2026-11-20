@@ -62,4 +62,6 @@ All milestones are implemented. Deviations from the original plan:
 
 Verified: unit tests (MAC parsing, magic packet over UDP, key format parsed by sshj, fingerprints, relay template); the SSH client against a local OpenSSH sshd (first-use pinning, pinned key, changed host key, timeout, dropped connection, rejected key); debug and R8 release builds; lint.
 
-Not verified on a device yet: UI flows, widgets, tiles, shortcuts, Wi-Fi binding with NetBird running.
+Emulator (Android 17): all screens, local-network permission prompt, SSH actions, confirmation dialog, failure notification, wake at home (UDP packet received) and away (relay command ran with placeholders filled), Quick Settings tiles, app shortcut, 1×1 and grid widgets with status and run states.
+
+Not verified: Wi-Fi binding while NetBird is running (needs the real phone).
