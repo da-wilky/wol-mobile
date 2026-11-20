@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sample label: this only renders in the widget picker. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_preview_cell"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="6dp"
+    tools:ignore="HardcodedText">
+    <ImageView
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:importantForAccessibility="no"
+        android:src="@drawable/ic_power"
+        android:tint="@android:color/system_accent2_900" />
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Wake NAS"
+        android:textColor="@android:color/system_accent2_900"
+        android:textSize="13sp" />
+</LinearLayout>

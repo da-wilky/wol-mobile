@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sample labels: this only renders in the widget picker. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" tools:ignore="HardcodedText,NestedWeights">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:baselineAligned="false" android:orientation="horizontal">
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_margin="2dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_preview_cell"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="6dp">
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_power"
+                android:importantForAccessibility="no"
+                android:tint="@android:color/system_accent2_900" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Wake NAS"
+                android:textColor="@android:color/system_accent2_900"
+                android:textSize="13sp" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_margin="2dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_preview_cell"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="6dp">
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_terminal"
+                android:importantForAccessibility="no"
+                android:tint="@android:color/system_accent2_900" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Poweroff"
+                android:textColor="@android:color/system_accent2_900"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:baselineAligned="false" android:orientation="horizontal">
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_margin="2dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_preview_cell"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="6dp">
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_power"
+                android:importantForAccessibility="no"
+                android:tint="@android:color/system_accent2_900" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Wake PC"
+                android:textColor="@android:color/system_accent2_900"
+                android:textSize="13sp" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_margin="2dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_preview_cell"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="6dp">
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_terminal"
+                android:importantForAccessibility="no"
+                android:tint="@android:color/system_accent2_900" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Backup"
+                android:textColor="@android:color/system_accent2_900"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

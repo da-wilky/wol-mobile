@@ -3,6 +3,7 @@
     android:configure="app.swilk.wolmobile.widget.WidgetConfigActivity"
     android:description="@string/widget_single_description"
     android:initialLayout="@layout/glance_default_loading_layout"
+    android:previewLayout="@layout/widget_preview_single"
     android:minWidth="40dp"
     android:minHeight="40dp"
     android:resizeMode="none"

@@ -4,18 +4,22 @@ import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.ColorFilter
 import androidx.glance.GlanceTheme
+import androidx.glance.Image
+import androidx.glance.ImageProvider
 import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.clickable
+import androidx.glance.appwidget.CircularProgressIndicator
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
@@ -36,11 +40,14 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
+import androidx.glance.layout.size
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
+import app.swilk.wolmobile.R
 import app.swilk.wolmobile.WolApp
+import app.swilk.wolmobile.data.ActionType
 import app.swilk.wolmobile.data.Action
 import app.swilk.wolmobile.data.HostStatus
 import app.swilk.wolmobile.data.RunState
@@ -123,20 +130,31 @@ private fun Cell(item: Item, showStatus: Boolean, modifier: GlanceModifier) {
     } else {
         actionRunCallback<RunCallback>(actionParametersOf(ActionIdKey to item.action.id))
     }
-    val detail = when (item.state) {
-        RunState.RUNNING -> "…"
-        RunState.OK -> "✓"
-        RunState.FAILED -> "✗"
-        RunState.IDLE -> item.status?.takeIf { showStatus }?.let {
-            val age = formatAge(System.currentTimeMillis() - it.checkedAt)
-            if (it.up) "● up · $age" else "○ down · $age"
-        }
+    val detail = item.status?.takeIf { showStatus && item.state == RunState.IDLE }?.let {
+        val age = formatAge(System.currentTimeMillis() - it.checkedAt)
+        if (it.up) "● up · $age" else "○ down · $age"
     }
+    val iconModifier = GlanceModifier.size(20.dp)
     Column(
         modifier.background(background).cornerRadius(16.dp).clickable(onClick).padding(6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        when (item.state) {
+            RunState.RUNNING -> CircularProgressIndicator(iconModifier, color = foreground)
+            else -> Image(
+                ImageProvider(
+                    when (item.state) {
+                        RunState.OK -> R.drawable.ic_check
+                        RunState.FAILED -> R.drawable.ic_error
+                        else -> if (item.action.type == ActionType.WAKE) R.drawable.ic_power else R.drawable.ic_terminal
+                    },
+                ),
+                contentDescription = null,
+                modifier = iconModifier,
+                colorFilter = ColorFilter.tint(foreground),
+            )
+        }
         Text(
             item.action.label,
             maxLines = 2,
