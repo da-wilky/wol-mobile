@@ -48,7 +48,7 @@ fun LogScreen(done: () -> Unit) {
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             if (entries.isEmpty()) item { ListItem { Text("Nothing has run yet.") } }
             items(entries, key = { it.id }) { entry ->
-                val time = DateUtils.getRelativeTimeSpanString(entry.at).toString()
+                val time = DateUtils.formatDateTime(context, entry.at, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_ALL)
                 ListItem(
                     leadingContent = {
                         if (entry.ok) {

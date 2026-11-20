@@ -19,7 +19,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -41,6 +40,7 @@ import app.swilk.wolmobile.data.WidgetConfig
 import app.swilk.wolmobile.db
 import app.swilk.wolmobile.run.enqueueStatusCheck
 import app.swilk.wolmobile.run.syncPeriodicStatus
+import app.swilk.wolmobile.ui.SwitchRow
 import app.swilk.wolmobile.ui.WolTheme
 import kotlinx.coroutines.launch
 
@@ -126,10 +126,7 @@ private fun WidgetConfigScreen(appWidgetId: Int, grid: Boolean, done: () -> Unit
                     Text(action.label)
                 }
             }
-            Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Show host status", Modifier.weight(1f))
-                Switch(checked = showStatus, onCheckedChange = { showStatus = it })
-            }
+            SwitchRow("Show host status", showStatus) { showStatus = it }
             if (showStatus) {
                 Text(
                     "Checked every ~15 minutes while this is on, and after each action.",
