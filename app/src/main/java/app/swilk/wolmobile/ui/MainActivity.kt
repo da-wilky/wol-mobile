@@ -23,7 +23,7 @@ const val EXTRA_OPEN_LOG = "openLog"
 @Serializable data class EditAction(val id: Long?) : NavKey
 @Serializable data class KeyDetail(val id: Long) : NavKey
 @Serializable data object SettingsRoute : NavKey
-@Serializable data object LogRoute : NavKey
+@Serializable data class LogRoute(val focus: Long? = null) : NavKey
 
 private fun runtimePermissions() = buildList {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
@@ -41,7 +41,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     permissions.launch(runtimePermissions())
                 }
-                val backStack = if (openLog) rememberNavBackStack(Home, LogRoute) else rememberNavBackStack(Home)
+                val backStack = if (openLog) rememberNavBackStack(Home, LogRoute()) else rememberNavBackStack(Home)
                 val back: () -> Unit = { backStack.removeLastOrNull() }
                 NavDisplay(
                     backStack = backStack,
@@ -53,7 +53,7 @@ class MainActivity : ComponentActivity() {
                         entry<EditAction> { ActionEditor(it.id, done = back) }
                         entry<KeyDetail> { KeyScreen(it.id, done = back) }
                         entry<SettingsRoute> { SettingsScreen(done = back) }
-                        entry<LogRoute> { LogScreen(done = back) }
+                        entry<LogRoute> { LogScreen(it.focus, done = back) }
                     },
                 )
             }

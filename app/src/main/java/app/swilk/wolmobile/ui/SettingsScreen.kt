@@ -1,12 +1,12 @@
 package app.swilk.wolmobile.ui
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -61,24 +61,29 @@ fun SettingsScreen(done: () -> Unit) {
             }
         },
     ) {
-        SectionTitle("Home detection")
-        Hint(
+        FormSection(
+            "Home detection",
             "Before waking a host, the app connects to this address over Wi-Fi, bypassing the VPN. " +
                 "If it answers, you're home and the magic packet is sent directly. Leave empty to always send directly.",
-        )
-        Field("LAN address, e.g. the Pi", probeAddress, KeyboardType.Uri) { probeAddress = it }
-        Field("TCP port", probePort, KeyboardType.Number, error = !probeValid) { probePort = it }
-
-        SectionTitle("Remote wake")
-        Hint("Away from home, this command runs on the relay over SSH. Placeholders: {mac}, {broadcast}, {port}.")
-        Picker("Relay SSH target", targets.map { it.id to it.name }, relayTargetId, noneLabel = "None") { relayTargetId = it }
-        Field("Relay command", relayCommand) { relayCommand = it }
-
-        SectionTitle("Quick Settings tiles")
-        Hint("Add the tiles via the edit button in the Quick Settings panel.")
-        repeat(TILE_COUNT) { slot ->
-            Picker("Tile ${slot + 1}", actions.map { it.id to it.label }, tiles[slot], noneLabel = "None") { id ->
-                tiles = tiles.toMutableList().also { it[slot] = id }
+        ) {
+            Field("LAN address", probeAddress, KeyboardType.Uri, placeholder = "the Pi, e.g. 192.168.1.2") { probeAddress = it }
+            Field("TCP port", probePort, KeyboardType.Number, error = !probeValid) { probePort = it }
+        }
+        FormSection(
+            "Remote wake",
+            "Away from home, this command runs on the relay over SSH.",
+        ) {
+            Picker("Relay SSH target", targets.map { it.id to it.name }, relayTargetId, noneLabel = "None") { relayTargetId = it }
+            Field("Relay command", relayCommand, supporting = "Placeholders: {mac}, {broadcast}, {port}") { relayCommand = it }
+        }
+        FormSection(
+            "Quick Settings tiles",
+            "Add the tiles with the edit button in the Quick Settings panel.",
+        ) {
+            repeat(TILE_COUNT) { slot ->
+                Picker("Tile ${slot + 1}", actions.map { it.id to it.label }, tiles[slot], noneLabel = "None") { id ->
+                    tiles = tiles.toMutableList().also { it[slot] = id }
+                }
             }
         }
     }

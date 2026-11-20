@@ -3,32 +3,43 @@ package app.swilk.wolmobile.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.swilk.wolmobile.R
 import app.swilk.wolmobile.data.Action
 import app.swilk.wolmobile.data.ActionType
 import app.swilk.wolmobile.data.Host
 import app.swilk.wolmobile.data.SshTarget
 import app.swilk.wolmobile.data.normalizeMac
 import app.swilk.wolmobile.db
+import app.swilk.wolmobile.run.Outcome
 import app.swilk.wolmobile.run.onActionsChanged
+import app.swilk.wolmobile.run.testSsh
 import app.swilk.wolmobile.ssh.fingerprint
 import kotlinx.coroutines.launch
 
@@ -91,17 +102,24 @@ fun HostEditor(id: Long?, done: () -> Unit) {
             }
         },
     ) {
-        Field("Name", name) { name = it }
-        Field("MAC address", mac, error = mac.isNotEmpty() && normalizedMac == null) { mac = it }
-        Field(
-            "Broadcast address", broadcast, KeyboardType.Uri,
-            supporting = "255.255.255.255, or your subnet's broadcast, e.g. 192.168.1.255",
-        ) { broadcast = it }
-        Field("WoL port", wolPort, KeyboardType.Number, error = parsePort(wolPort) == null) { wolPort = it }
-        SectionTitle("Status check (optional)")
-        Hint("A TCP port that answers while the host is up, e.g. 22. Must be reachable from the phone at home and over the VPN.")
-        Field("Address", probeAddress, KeyboardType.Uri) { probeAddress = it }
-        Field("TCP port", probePort, KeyboardType.Number, error = !probeValid) { probePort = it }
+        FormSection("Host") {
+            Field("Name", name, placeholder = "nas") { name = it }
+        }
+        FormSection("Wake-on-LAN") {
+            MacField(mac) { mac = it }
+            Field(
+                "Broadcast address", broadcast, KeyboardType.Uri,
+                supporting = "Or your subnet's broadcast, e.g. 192.168.1.255",
+            ) { broadcast = it }
+            Field("UDP port", wolPort, KeyboardType.Number, error = parsePort(wolPort) == null) { wolPort = it }
+        }
+        FormSection(
+            "Status check",
+            "Optional. A TCP port that answers while the host is up, e.g. 22. Must be reachable at home and over the VPN.",
+        ) {
+            Field("Address", probeAddress, KeyboardType.Uri, placeholder = "192.168.1.20") { probeAddress = it }
+            Field("TCP port", probePort, KeyboardType.Number, error = !probeValid, placeholder = "22") { probePort = it }
+        }
     }
 }
 
@@ -119,7 +137,11 @@ fun TargetEditor(id: Long?, done: () -> Unit) {
     var user by rememberSaveable { mutableStateOf("") }
     var keyId by rememberSaveable { mutableStateOf<Long?>(null) }
     var hostKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var loadedEndpoint by rememberSaveable { mutableStateOf<String?>(null) }
+    var loadedHostKey by rememberSaveable { mutableStateOf<String?>(null) }
     var usages by rememberSaveable { mutableIntStateOf(0) }
+    var testing by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<Outcome?>(null) }
     LaunchedEffect(id) {
         if (id == null) return@LaunchedEffect
         usages = dao.actionCount(id)
@@ -127,12 +149,16 @@ fun TargetEditor(id: Long?, done: () -> Unit) {
         dao.get(id)?.let {
             name = it.name; address = it.address; port = it.port.toString(); user = it.user
             keyId = it.keyId; hostKey = it.hostKey
+            loadedEndpoint = "${it.address}:${it.port}"; loadedHostKey = it.hostKey
         }
         loaded = true
     }
 
     val valid = loaded && name.isNotBlank() && address.isNotBlank() && parsePort(port) != null &&
         user.isNotBlank() && keys.any { it.id == keyId }
+    fun current(pinned: String?) = SshTarget(id ?: 0, name.trim(), address.trim(), parsePort(port)!!, user.trim(), keyId!!, pinned)
+    // A pin belongs to an endpoint: moving the target to another address drops a pin that wasn't renewed by a test.
+    fun pinToSave() = if ("${address.trim()}:${parsePort(port)}" != loadedEndpoint && hostKey == loadedHostKey) null else hostKey
 
     EditorScaffold(
         title = if (id == null) "New SSH target" else "Edit SSH target",
@@ -140,11 +166,7 @@ fun TargetEditor(id: Long?, done: () -> Unit) {
         canSave = valid,
         onSave = {
             scope.launch {
-                val previous = id?.let { dao.get(it) }
-                val sameEndpoint = previous?.address == address.trim() && previous.port == parsePort(port)
-                // A pin can arrive from a run while editing, so take the stored one unless the user forgot it.
-                val pinned = if (sameEndpoint && hostKey != null) previous.hostKey else null
-                dao.upsert(SshTarget(id ?: 0, name.trim(), address.trim(), parsePort(port)!!, user.trim(), keyId!!, pinned))
+                dao.upsert(current(pinToSave()))
                 onActionsChanged(context)
                 done()
             }
@@ -158,20 +180,50 @@ fun TargetEditor(id: Long?, done: () -> Unit) {
             }
         },
     ) {
-        Field("Name", name) { name = it }
-        Field("Address", address, KeyboardType.Uri) { address = it }
-        Field("Port", port, KeyboardType.Number, error = parsePort(port) == null) { port = it }
-        Field("User", user) { user = it }
-        if (keys.isEmpty()) Text("Create a key in the Keys tab first.", color = MaterialTheme.colorScheme.error)
-        Picker("Key", keys.map { it.id to it.name }, keyId) { keyId = it }
-        SectionTitle("Host key")
-        val pinned = hostKey
-        if (pinned == null) {
-            Hint("Not pinned yet. The key presented on the first successful connection is trusted and pinned.")
-        } else {
-            Text(fingerprint(pinned), style = MaterialTheme.typography.bodySmall)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { hostKey = null }) { Text("Forget host key") }
+        FormSection("Connection") {
+            Field("Name", name, placeholder = "pi") { name = it }
+            Field("Address", address, KeyboardType.Uri, placeholder = "192.168.1.2 or a NetBird name") { address = it }
+            Field("Port", port, KeyboardType.Number, error = parsePort(port) == null) { port = it }
+            Field("User", user) { user = it }
+        }
+        FormSection("Authentication") {
+            if (keys.isEmpty()) Text("Create a key in the Keys tab first.", color = MaterialTheme.colorScheme.error)
+            Picker("Key", keys.map { it.id to it.name }, keyId) { keyId = it }
+        }
+        FormSection(
+            "Host key",
+            "The server's key is trusted on the first connection and checked on every later one.",
+        ) {
+            val pinned = hostKey
+            if (pinned == null) {
+                Text("Not pinned yet", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Text(fingerprint(pinned), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            }
+            testResult?.let { result ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(
+                        painterResource(if (result.ok) R.drawable.ic_check_circle else R.drawable.ic_error), null,
+                        tint = if (result.ok) upColor else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text(result.message, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(
+                    enabled = valid && !testing,
+                    onClick = {
+                        testing = true
+                        testResult = null
+                        scope.launch {
+                            testResult = testSsh(context, current(hostKey)) { hostKey = it }
+                            testing = false
+                        }
+                    },
+                ) { Text("Test connection") }
+                if (testing) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
+                if (pinned != null) TextButton(onClick = { hostKey = null; testResult = null }) { Text("Forget") }
             }
         }
     }
@@ -235,32 +287,44 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
             }
         },
     ) {
-        Field("Label", label) { label = it }
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            ActionType.entries.forEachIndexed { i, t ->
-                SegmentedButton(
-                    selected = type == t,
-                    onClick = { type = t },
-                    shape = SegmentedButtonDefaults.itemShape(i, ActionType.entries.size),
-                ) { Text(if (t == ActionType.WAKE) "Wake host" else "SSH command") }
+        FormSection("Action") {
+            Field("Label", label, placeholder = "Wake NAS") { label = it }
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                ActionType.entries.forEachIndexed { i, t ->
+                    SegmentedButton(
+                        selected = type == t,
+                        onClick = { type = t },
+                        shape = SegmentedButtonDefaults.itemShape(i, ActionType.entries.size),
+                        icon = {
+                            Icon(
+                                painterResource(if (t == ActionType.WAKE) R.drawable.ic_power else R.drawable.ic_terminal), null,
+                                Modifier.size(SegmentedButtonDefaults.IconSize),
+                            )
+                        },
+                    ) { Text(if (t == ActionType.WAKE) "Wake host" else "SSH command") }
+                }
             }
         }
         val hostOptions = hosts.map { it.id to it.name }
         when (type) {
-            ActionType.WAKE -> {
+            ActionType.WAKE -> FormSection(
+                "Wake",
+                "At home a magic packet is sent directly; elsewhere the relay from Settings sends it.",
+            ) {
                 if (hosts.isEmpty()) Text("Add a host first.", color = MaterialTheme.colorScheme.error)
                 Picker("Host", hostOptions, hostId) { hostId = it }
-                Hint("At home a magic packet is sent directly; elsewhere the relay from Settings is used.")
             }
-            ActionType.SSH -> {
+            ActionType.SSH -> FormSection("Command") {
                 if (targets.isEmpty()) Text("Add an SSH target first.", color = MaterialTheme.colorScheme.error)
                 Picker("SSH target", targets.map { it.id to it.name }, targetId) { targetId = it }
-                Field("Command", command, singleLine = false) { command = it }
+                Field("Command", command, singleLine = false, placeholder = "sudo poweroff") { command = it }
                 Picker("Affected host (optional)", hostOptions, hostId, noneLabel = "None") { hostId = it }
                 Hint("If set, the host's status is followed after the command, e.g. until it is down after a poweroff.")
             }
         }
-        SwitchRow("Confirm before running", confirm) { confirm = it }
-        SwitchRow("Show in app shortcuts", shortcut) { shortcut = it }
+        FormSection("Behaviour") {
+            SwitchRow("Confirm before running", confirm, "Ask before running from the app, widgets, tiles and shortcuts.") { confirm = it }
+            SwitchRow("App shortcut", shortcut, "Show when long-pressing the app icon.") { shortcut = it }
+        }
     }
 }

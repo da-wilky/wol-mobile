@@ -5,29 +5,40 @@ import android.content.ClipboardManager
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import app.swilk.wolmobile.R
 import app.swilk.wolmobile.data.SshKey
 import app.swilk.wolmobile.db
 import app.swilk.wolmobile.ssh.KeyCipher
+import app.swilk.wolmobile.ssh.fingerprint
 import app.swilk.wolmobile.ssh.generateEd25519
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -52,20 +63,44 @@ fun KeyScreen(id: Long, done: () -> Unit) {
         deleteWarning = if (usages == 0) "Servers that trust this key will no longer be reachable with it." else null,
         onDelete = { scope.launch { dao.delete(current); done() } },
     ) {
-        Text("Public key", style = MaterialTheme.typography.labelLarge)
-        SelectionContainer {
-            Text(current.publicKey, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-        }
-        Hint("Add this line to ~/.ssh/authorized_keys on the server. Prefix it with command=\"…\" to restrict the key to one command.")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                context.getSystemService(ClipboardManager::class.java)
-                    .setPrimaryClip(ClipData.newPlainText("Public key", current.publicKey))
-            }) { Text("Copy") }
-            OutlinedButton(onClick = {
-                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, current.publicKey)
-                context.startActivity(Intent.createChooser(send, "Share public key"))
-            }) { Text("Share") }
+        FormSection(
+            "Public key",
+            "Add this line to ~/.ssh/authorized_keys on the server. Prefix it with command=\"…\" to restrict the key to one command.",
+        ) {
+            Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                SelectionContainer {
+                    Text(
+                        current.publicKey,
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    )
+                }
+            }
+            Text(
+                fingerprint(current.publicKey.substringBeforeLast(' ')),
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = {
+                    context.getSystemService(ClipboardManager::class.java)
+                        .setPrimaryClip(ClipData.newPlainText("Public key", current.publicKey))
+                }) {
+                    Icon(painterResource(R.drawable.ic_copy), null, Modifier.size(ButtonDefaults.IconSize))
+                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                    Text("Copy")
+                }
+                OutlinedButton(onClick = {
+                    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, current.publicKey)
+                    context.startActivity(Intent.createChooser(send, "Share public key"))
+                }) {
+                    Icon(painterResource(R.drawable.ic_share), null, Modifier.size(ButtonDefaults.IconSize))
+                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                    Text("Share")
+                }
+            }
         }
         if (usages > 0) Hint("Used by $usages SSH target(s); remove it from them before deleting.")
     }
@@ -79,16 +114,20 @@ fun NewKeyDialog(onDone: () -> Unit) {
     var generating by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = { if (!generating) onDone() },
+        icon = { Icon(painterResource(R.drawable.ic_key), null) },
         title = { Text("New Ed25519 key") },
         text = {
             if (generating) {
                 CircularProgressIndicator()
             } else {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true)
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it }, label = { Text("Name") },
+                    placeholder = { Text("pi-wake") }, singleLine = true,
+                )
             }
         },
         confirmButton = {
-            TextButton(
+            Button(
                 enabled = name.isNotBlank() && !generating,
                 onClick = {
                     generating = true
