@@ -112,6 +112,9 @@ interface RunDao {
     @Upsert
     suspend fun insertLog(entry: RunLog)
 
+    @Query("DELETE FROM RunLog")
+    suspend fun clearLog()
+
     @Query("DELETE FROM RunLog WHERE id NOT IN (SELECT id FROM RunLog ORDER BY id DESC LIMIT :keep)")
     suspend fun trimLog(keep: Int)
 }

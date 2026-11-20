@@ -11,6 +11,7 @@ import app.swilk.wolmobile.net.sendMagicPacket
 import app.swilk.wolmobile.net.tcpReachable
 import app.swilk.wolmobile.net.wifiNetwork
 import app.swilk.wolmobile.ssh.KeyCipher
+import app.swilk.wolmobile.ssh.SshResult
 import app.swilk.wolmobile.ssh.runSsh
 import net.schmizz.sshj.userauth.UserAuthException
 import java.io.IOException
@@ -23,12 +24,9 @@ fun relayCommand(template: String, host: Host): String = template
     .replace("{broadcast}", host.broadcastAddress)
     .replace("{port}", host.wolPort.toString())
 
-suspend fun runAction(context: Context, action: Action): Outcome = try {
-    val db = context.db
-    when (action.type) {
-        ActionType.WAKE -> db.hosts().get(action.hostId!!)?.let { wake(context, it) }
-        ActionType.SSH -> db.targets().get(action.targetId!!)?.let { ssh(context, it, action.command!!) }
-    } ?: Outcome(false, "The host or SSH target of this action no longer exists")
+/** Maps the errors that cross the network and keystore boundaries to a message; anything else is a bug and propagates. */
+private inline fun guarded(block: () -> Outcome): Outcome = try {
+    block()
 } catch (_: UserAuthException) {
     Outcome(false, "The server rejected the key. Is the public key in authorized_keys?")
 } catch (e: IOException) {
@@ -37,6 +35,21 @@ suspend fun runAction(context: Context, action: Action): Outcome = try {
     Outcome(false, "Permission denied: ${e.message}")
 } catch (e: GeneralSecurityException) {
     Outcome(false, "Could not decrypt SSH key: ${e.message}")
+}
+
+suspend fun runAction(context: Context, action: Action): Outcome = guarded {
+    val db = context.db
+    when (action.type) {
+        ActionType.WAKE -> db.hosts().get(action.hostId!!)?.let { wake(context, it) }
+        ActionType.SSH -> db.targets().get(action.targetId!!)?.let { ssh(context, it, action.command!!) }
+    } ?: Outcome(false, "The host or SSH target of this action no longer exists")
+}
+
+/** Logs in with the given, possibly unsaved, target settings. [hostKey] receives the key to pin on success. */
+suspend fun testSsh(context: Context, target: SshTarget, hostKey: (String) -> Unit): Outcome = guarded {
+    val result = connect(context, target, "true")
+    hostKey(result.hostKey)
+    Outcome(true, "Connected and logged in")
 }
 
 private suspend fun wake(context: Context, host: Host): Outcome {
@@ -54,12 +67,15 @@ private suspend fun wake(context: Context, host: Host): Outcome {
     return ssh(context, relay, relayCommand(settings.relayCommand, host))
 }
 
-private suspend fun ssh(context: Context, target: SshTarget, command: String): Outcome {
-    val db = context.db
-    val key = db.keys().get(target.keyId)!!
+private suspend fun connect(context: Context, target: SshTarget, command: String): SshResult {
+    val key = context.db.keys().get(target.keyId)!!
     val pem = KeyCipher.decrypt(key.encryptedPrivateKey).toString(Charsets.UTF_8)
-    val result = runSsh(target.address, target.port, target.user, pem, target.hostKey, command)
-    if (target.hostKey == null) db.targets().setHostKey(target.id, result.hostKey)
+    return runSsh(target.address, target.port, target.user, pem, target.hostKey, command)
+}
+
+private suspend fun ssh(context: Context, target: SshTarget, command: String): Outcome {
+    val result = connect(context, target, command)
+    if (target.hostKey == null) context.db.targets().setHostKey(target.id, result.hostKey)
     return when (result.exitStatus) {
         0 -> Outcome(true, "Ran on ${target.name}", result.output)
         null -> Outcome(true, "${target.name} closed the connection without an exit status", result.output)
