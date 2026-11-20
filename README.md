@@ -9,6 +9,14 @@ nix develop -c ./gradlew testDebugUnitTest assembleDebug
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
+Headless emulator (Android 17), e.g. over SSH:
+
+```sh
+nix run .#emulator           # creates the AVD on first run, returns once booted, prints how to connect
+nix develop -c ./gradlew installDebug
+nix run .#emulator -- stop
+```
+
 ## Release
 
 Create a signing key once and keep it safe — updates must be signed with the same key:
