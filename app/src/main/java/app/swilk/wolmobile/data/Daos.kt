@@ -4,6 +4,7 @@ import androidx.room3.Dao
 import androidx.room3.Delete
 import androidx.room3.Insert
 import androidx.room3.Query
+import androidx.room3.Update
 import androidx.room3.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -69,14 +70,20 @@ interface SshTargetDao {
 
 @Dao
 interface ActionDao {
-    @Query("SELECT * FROM Action ORDER BY label COLLATE NOCASE")
+    @Query("SELECT * FROM Action ORDER BY position, label COLLATE NOCASE")
     fun all(): Flow<List<Action>>
 
-    @Query("SELECT * FROM Action ORDER BY label COLLATE NOCASE")
+    @Query("SELECT * FROM Action ORDER BY position, label COLLATE NOCASE")
     suspend fun list(): List<Action>
 
     @Query("SELECT * FROM Action WHERE id = :id")
     suspend fun get(id: Long): Action?
+
+    @Query("SELECT COALESCE(MAX(position) + 1, 0) FROM Action")
+    suspend fun nextPosition(): Int
+
+    @Update
+    suspend fun update(actions: List<Action>)
 
     @Upsert
     suspend fun upsert(action: Action)

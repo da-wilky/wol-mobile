@@ -249,11 +249,12 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
     var confirm by rememberSaveable { mutableStateOf(false) }
     var shortcut by rememberSaveable { mutableStateOf(false) }
     var unlock by rememberSaveable { mutableStateOf(false) }
+    var position by rememberSaveable { mutableStateOf<Int?>(null) }
     LaunchedEffect(id) {
         if (loaded) return@LaunchedEffect
         dao.get(id!!)?.let {
             label = it.label; type = it.type; hostId = it.hostId; targetId = it.targetId
-            command = it.command.orEmpty(); confirm = it.confirmBeforeRun; shortcut = it.shortcut; unlock = it.requireUnlock
+            command = it.command.orEmpty(); confirm = it.confirmBeforeRun; shortcut = it.shortcut; unlock = it.requireUnlock; position = it.position
         }
         loaded = true
     }
@@ -276,6 +277,7 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
                         hostId = hostId, targetId = targetId.takeUnless { wake },
                         command = command.trim().takeUnless { wake },
                         confirmBeforeRun = confirm, shortcut = shortcut, requireUnlock = unlock,
+                        position = position ?: dao.nextPosition(),
                     ),
                 )
                 onActionsChanged(context)

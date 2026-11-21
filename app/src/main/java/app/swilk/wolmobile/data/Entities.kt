@@ -84,6 +84,7 @@ data class Action(
     val confirmBeforeRun: Boolean,
     val shortcut: Boolean,
     @ColumnInfo(defaultValue = "0") val requireUnlock: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val position: Int = 0,
 ) {
     /** Runs through [app.swilk.wolmobile.ui.RunActionActivity] to confirm or unlock first. */
     val interactive: Boolean get() = confirmBeforeRun || requireUnlock

@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -60,8 +62,11 @@ import app.swilk.wolmobile.data.RunState
 import app.swilk.wolmobile.db
 import app.swilk.wolmobile.run.checkAllHosts
 import app.swilk.wolmobile.run.enqueueRun
+import app.swilk.wolmobile.run.onActionsChanged
 import app.swilk.wolmobile.ssh.fingerprint
 import kotlinx.coroutines.launch
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 private enum class Tab(val label: String, @DrawableRes val icon: Int, val add: String) {
     ACTIONS("Actions", R.drawable.ic_power, "New action"),
@@ -78,6 +83,14 @@ fun HomeScreen(open: (NavKey) -> Unit) {
     val scope = rememberCoroutineScope()
     var tab by rememberSaveable { mutableStateOf(Tab.ACTIONS) }
     val actions by db.actions().all().collectAsStateWithLifecycle(null)
+    var ordered by remember { mutableStateOf(emptyList<Action>()) }
+    LaunchedEffect(actions) { actions?.let { ordered = it } }
+    val listState = rememberLazyListState()
+    val reorderState = rememberReorderableLazyListState(listState) { from, to ->
+        val fromIndex = ordered.indexOfFirst { it.id == from.key }
+        val toIndex = ordered.indexOfFirst { it.id == to.key }
+        if (fromIndex >= 0 && toIndex >= 0) ordered = ordered.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+    }
     val hosts by db.hosts().all().collectAsStateWithLifecycle(emptyList())
     val networks by db.networks().all().collectAsStateWithLifecycle(emptyList())
     val relays by db.networks().allRelays().collectAsStateWithLifecycle(emptyList())
@@ -219,20 +232,30 @@ fun HomeScreen(open: (NavKey) -> Unit) {
             }
             LazyColumn(
                 Modifier.fillMaxSize(),
+                state = listState,
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 when (tab) {
-                    Tab.ACTIONS -> items(currentActions, key = { it.id }) { action ->
-                        ActionCard(
-                            action,
-                            host = hosts.find { it.id == action.hostId },
-                            status = statuses.find { it.hostId == action.hostId },
-                            targetName = targets.find { it.id == action.targetId }?.name,
-                            state = states.find { it.actionId == action.id }?.state ?: RunState.IDLE,
-                            onRun = { run(action) },
-                            onEdit = { open(EditAction(action.id)) },
-                        )
+                    Tab.ACTIONS -> items(ordered, key = { it.id }) { action ->
+                        ReorderableItem(reorderState, key = action.id) { dragging ->
+                            ActionCard(
+                                action,
+                                host = hosts.find { it.id == action.hostId },
+                                status = statuses.find { it.hostId == action.hostId },
+                                targetName = targets.find { it.id == action.targetId }?.name,
+                                state = states.find { it.actionId == action.id }?.state ?: RunState.IDLE,
+                                onRun = { run(action) },
+                                onEdit = { open(EditAction(action.id)) },
+                                dragging = dragging,
+                                handle = Modifier.draggableHandle(onDragStopped = {
+                                    scope.launch {
+                                        db.actions().update(ordered.mapIndexed { i, a -> a.copy(position = i) })
+                                        onActionsChanged(context)
+                                    }
+                                }),
+                            )
+                        }
                     }
                     Tab.HOSTS -> {
                         networks.forEach { network ->
@@ -294,10 +317,21 @@ private fun ActionCard(
     state: RunState,
     onRun: () -> Unit,
     onEdit: () -> Unit,
+    dragging: Boolean,
+    handle: Modifier,
 ) {
     val wake = action.type == ActionType.WAKE
-    Card(onClick = onEdit, modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Card(
+        onClick = onEdit,
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (dragging) 8.dp else 0.dp),
+    ) {
+        Row(Modifier.padding(start = 4.dp, top = 16.dp, end = 16.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painterResource(R.drawable.ic_drag_handle), "Reorder",
+                handle.size(40.dp).padding(8.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             IconBadge(if (wake) R.drawable.ic_power else R.drawable.ic_terminal)
             Column(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(action.label, style = MaterialTheme.typography.titleMedium)
