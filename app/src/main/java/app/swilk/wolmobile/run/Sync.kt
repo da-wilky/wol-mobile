@@ -9,6 +9,8 @@ import android.graphics.drawable.Icon
 import android.service.quicksettings.TileService
 import androidx.glance.appwidget.updateAll
 import app.swilk.wolmobile.R
+import app.swilk.wolmobile.data.Action
+import app.swilk.wolmobile.data.ActionType
 import app.swilk.wolmobile.db
 import app.swilk.wolmobile.tile.ActionTile1
 import app.swilk.wolmobile.tile.ActionTile2
@@ -28,19 +30,32 @@ fun refreshTiles(context: Context) {
     }
 }
 
-/** Propagates action changes to every surface that shows actions. */
+/** Propagates action changes to every surface that shows actions. Pinned shortcuts can't be removed, only disabled. */
 suspend fun onActionsChanged(context: Context) {
     val actions = context.db.actions().list()
     val shortcutManager = context.getSystemService(ShortcutManager::class.java)
     shortcutManager.dynamicShortcuts = actions.filter { it.shortcut }
         .take(shortcutManager.maxShortcutCountPerActivity)
-        .map {
-            ShortcutInfo.Builder(context, "action-${it.id}")
-                .setShortLabel(it.label)
-                .setIcon(Icon.createWithResource(context, R.drawable.ic_shortcut))
-                .setIntent(runIntent(context, it.id).setAction(Intent.ACTION_VIEW))
-                .build()
-        }
+        .map { actionShortcut(context, it) }
+    val pinned = shortcutManager.pinnedShortcuts.map { it.id }.toSet()
+    shortcutManager.updateShortcuts(actions.filter { shortcutId(it) in pinned }.map { actionShortcut(context, it) })
+    shortcutManager.disableShortcuts((pinned - actions.map(::shortcutId).toSet()).toList(), "Action deleted")
     refreshTiles(context)
     refreshWidgets(context)
 }
+
+/** False if the launcher can't pin shortcuts; otherwise it asks the user where to place it. */
+fun pinShortcut(context: Context, action: Action): Boolean {
+    val shortcutManager = context.getSystemService(ShortcutManager::class.java)
+    if (!shortcutManager.isRequestPinShortcutSupported) return false
+    return shortcutManager.requestPinShortcut(actionShortcut(context, action), null)
+}
+
+private fun shortcutId(action: Action) = "action-${action.id}"
+
+private fun actionShortcut(context: Context, action: Action): ShortcutInfo =
+    ShortcutInfo.Builder(context, shortcutId(action))
+        .setShortLabel(action.label)
+        .setIcon(Icon.createWithResource(context, if (action.type == ActionType.WAKE) R.drawable.ic_shortcut_wake else R.drawable.ic_shortcut_ssh))
+        .setIntent(runIntent(context, action.id).setAction(Intent.ACTION_VIEW))
+        .build()

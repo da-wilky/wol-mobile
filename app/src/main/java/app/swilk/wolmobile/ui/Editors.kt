@@ -1,5 +1,6 @@
 package app.swilk.wolmobile.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,6 +40,7 @@ import app.swilk.wolmobile.data.normalizeMac
 import app.swilk.wolmobile.db
 import app.swilk.wolmobile.run.Outcome
 import app.swilk.wolmobile.run.onActionsChanged
+import app.swilk.wolmobile.run.pinShortcut
 import app.swilk.wolmobile.run.testSsh
 import app.swilk.wolmobile.ssh.fingerprint
 import kotlinx.coroutines.launch
@@ -311,7 +313,7 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
         when (type) {
             ActionType.WAKE -> FormSection(
                 "Wake",
-                "At home a magic packet is sent directly; elsewhere the relay from Settings sends it.",
+                "On the host's network the magic packet is sent directly; elsewhere the network's relays send it.",
             ) {
                 if (hosts.isEmpty()) Text("Add a host first.", color = MaterialTheme.colorScheme.error)
                 Picker("Host", hostOptions, hostId) { hostId = it }
@@ -328,6 +330,14 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
             SwitchRow("Confirm before running", confirm, "Ask before running from the app, widgets, tiles and shortcuts.") { confirm = it }
             SwitchRow("Require unlock", unlock, "Ask for fingerprint or screen lock before running, from anywhere.") { unlock = it }
             SwitchRow("App shortcut", shortcut, "Show when long-pressing the app icon.") { shortcut = it }
+            if (id != null) {
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        val pinned = dao.get(id)?.let { pinShortcut(context, it) } ?: false
+                        if (!pinned) Toast.makeText(context, "This launcher can't add shortcuts", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("Add to home screen") }
+            }
         }
     }
 }
