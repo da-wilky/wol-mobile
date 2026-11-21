@@ -40,6 +40,8 @@
         in pkgs.mkShell {
           packages = [ pkgs.jdk21 android.platform-tools ];
           ANDROID_HOME = sdk;
+          # Overrides a preset one (e.g. on GitHub runners); AGP refuses differing SDK paths.
+          ANDROID_SDK_ROOT = sdk;
           # aapt2 that AGP downloads from Maven is dynamically linked and won't run on NixOS.
           GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${sdk}/build-tools/${buildTools}/aapt2";
         };
