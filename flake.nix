@@ -110,8 +110,8 @@
           export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${defaultSdk}/build-tools/${buildTools}/aapt2"
           if [ $# -gt 0 ]; then export ANDROID_SERIAL=$1; fi
           ./gradlew installDebug
-          adb shell am start -W -n app.swilk.wolmobile/.ui.MainActivity > /dev/null
-          exec adb logcat --pid="$(adb shell pidof app.swilk.wolmobile)"
+          adb shell am start -W -n app.swilk.wolmobile.debug/app.swilk.wolmobile.ui.MainActivity > /dev/null
+          exec adb logcat --pid="$(adb shell pidof app.swilk.wolmobile.debug)"
         '';
       };
       # `nix run .#adb-listen -- <serial> <port>`: adbd keeps listening on <port> without Wi-Fi (e.g. over NetBird on mobile data) until the phone reboots.
