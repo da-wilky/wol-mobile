@@ -75,8 +75,7 @@ fun HostEditor(id: Long?, done: () -> Unit) {
     }
 
     val normalizedMac = normalizeMac(mac)
-    val probeValid = probeAddress.isBlank() && probePort.isBlank() ||
-        probeAddress.isNotBlank() && parsePort(probePort) != null
+    val probeValid = probePort.isBlank() || probeAddress.isNotBlank() && parsePort(probePort) != null
     val valid = loaded && name.isNotBlank() && normalizedMac != null && networks.any { it.id == networkId } &&
         parsePort(wolPort) != null && probeValid
 
@@ -117,10 +116,10 @@ fun HostEditor(id: Long?, done: () -> Unit) {
         }
         FormSection(
             "Status check",
-            "Optional. A TCP port that answers while the host is up, e.g. 22. Must be reachable at home and over the VPN.",
+            "Optional. Pings the address, or connects to a TCP port if you set one, e.g. 22 when ping is blocked. Must be reachable at home and over the VPN.",
         ) {
             Field("Address", probeAddress, KeyboardType.Uri, placeholder = "192.168.1.20") { probeAddress = it }
-            Field("TCP port", probePort, KeyboardType.Number, error = !probeValid, placeholder = "22") { probePort = it }
+            Field("TCP port", probePort, KeyboardType.Number, error = !probeValid, placeholder = "Empty to ping") { probePort = it }
         }
     }
 }

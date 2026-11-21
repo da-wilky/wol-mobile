@@ -245,7 +245,7 @@ fun HomeScreen(open: (NavKey) -> Unit) {
                             items(members, key = { it.id }) { host ->
                         ItemCard(
                             R.drawable.ic_host, host.name,
-                            listOfNotNull(host.mac, host.probeAddress?.let { "$it:${host.probePort}" }).joinToString(" · "),
+                            listOfNotNull(host.mac, host.probeAddress?.let { address -> host.probePort?.let { "$address:$it" } ?: "ping $address" }).joinToString(" · "),
                             onClick = { open(EditHost(host.id)) },
                         ) { statuses.find { it.hostId == host.id }?.let { StatusChip(it) } }
                             }

@@ -4,15 +4,16 @@ import android.content.Context
 import app.swilk.wolmobile.data.Host
 import app.swilk.wolmobile.data.HostStatus
 import app.swilk.wolmobile.db
+import app.swilk.wolmobile.net.pingReachable
 import app.swilk.wolmobile.net.tcpReachable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
-/** Probes without binding to Wi-Fi so it works both at home and through the VPN. Null if no probe is configured. */
+/** Probes the TCP port, or pings without one, without binding to Wi-Fi so it works both at home and through the VPN. Null if no probe is configured. */
 suspend fun checkHost(context: Context, host: Host): Boolean? {
     val address = host.probeAddress ?: return null
-    val up = tcpReachable(null, address, host.probePort!!, timeoutMs = 2_000)
+    val up = host.probePort?.let { tcpReachable(null, address, it, timeoutMs = 2_000) } ?: pingReachable(address)
     context.db.status().set(HostStatus(host.id, up, System.currentTimeMillis()))
     return up
 }
