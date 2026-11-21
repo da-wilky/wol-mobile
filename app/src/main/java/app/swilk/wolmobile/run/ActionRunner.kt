@@ -57,11 +57,15 @@ private suspend fun wake(context: Context, host: Host): Outcome {
     val network = networks.get(host.networkId)!!
     val wifi = wifiNetwork(context)
     val probe = network.probeAddress
-    if (probe == null || wifi != null && tcpReachable(wifi, probe, network.probePort)) {
-        sendMagicPacket(wifi, host.mac, network.broadcastAddress, host.wolPort)
-        return Outcome(true, "Magic packet sent to ${host.mac}")
-    }
     val failures = mutableListOf<String>()
+    if (probe == null || wifi != null && tcpReachable(wifi, probe, network.probePort)) {
+        try {
+            sendMagicPacket(wifi, host.mac, network.broadcastAddress, host.wolPort)
+            return Outcome(true, "Magic packet sent to ${host.mac}")
+        } catch (e: IOException) {
+            failures += if (e.message?.contains("EPERM") == true) "VPN blocks direct send" else "direct: ${e.message}"
+        }
+    }
     for (relay in networks.relays(network.id)) {
         val outcome = guarded { ssh(context, relay, relayCommand(network, host)) }
         if (outcome.ok) {
@@ -71,7 +75,7 @@ private suspend fun wake(context: Context, host: Host): Outcome {
         failures += "${relay.name}: ${outcome.message}"
     }
     if (failures.isEmpty()) return Outcome(false, "Not on ${network.name} and it has no relays")
-    return Outcome(false, "Every relay failed: ${failures.joinToString("; ")}")
+    return Outcome(false, "Could not send: ${failures.joinToString("; ")}")
 }
 
 private suspend fun connect(context: Context, target: SshTarget, command: String): SshResult {
