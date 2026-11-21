@@ -25,7 +25,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -50,17 +49,21 @@ fun KeyScreen(id: Long, done: () -> Unit) {
     val dao = context.db.keys()
     val scope = rememberCoroutineScope()
     var key by remember { mutableStateOf<SshKey?>(null) }
-    var usages by remember { mutableIntStateOf(0) }
+    var users by remember { mutableStateOf(emptyList<String>()) }
     LaunchedEffect(id) {
         key = dao.get(id)
-        usages = dao.targetCount(id)
+        users = dao.targetNames(id)
     }
     val current = key ?: return
 
     EditorScaffold(
         title = current.name,
         onBack = done,
-        deleteWarning = if (usages == 0) "Servers that trust this key will no longer be reachable with it." else null,
+        deleteWarning = if (users.isEmpty()) {
+            "Servers that trust this key will no longer be reachable with it."
+        } else {
+            "Used by ${users.joinToString()}. They keep their settings but have no key until you pick another one."
+        },
         onDelete = { scope.launch { dao.delete(current); done() } },
     ) {
         FormSection(
@@ -102,7 +105,7 @@ fun KeyScreen(id: Long, done: () -> Unit) {
                 }
             }
         }
-        if (usages > 0) Hint("Used by $usages SSH target(s); remove it from them before deleting.")
+        if (users.isNotEmpty()) Hint("Used by ${users.joinToString()}.")
     }
 }
 

@@ -2,6 +2,7 @@ package app.swilk.wolmobile.data
 
 import androidx.room3.Dao
 import androidx.room3.Delete
+import androidx.room3.Insert
 import androidx.room3.Query
 import androidx.room3.Upsert
 import kotlinx.coroutines.flow.Flow
@@ -35,8 +36,8 @@ interface SshKeyDao {
     @Query("SELECT * FROM SshKey WHERE id = :id")
     suspend fun get(id: Long): SshKey?
 
-    @Query("SELECT COUNT(*) FROM SshTarget WHERE keyId = :id")
-    suspend fun targetCount(id: Long): Int
+    @Query("SELECT name FROM SshTarget WHERE keyId = :id ORDER BY name")
+    suspend fun targetNames(id: Long): List<String>
 
     @Upsert
     suspend fun upsert(key: SshKey)
@@ -144,4 +145,43 @@ interface WidgetDao {
 
     @Query("DELETE FROM WidgetConfig WHERE appWidgetId IN (:ids)")
     suspend fun delete(ids: List<Int>)
+}
+
+@Dao
+interface NetworkDao {
+    @Query("SELECT * FROM Network ORDER BY name COLLATE NOCASE")
+    fun all(): Flow<List<Network>>
+
+    @Query("SELECT * FROM Network WHERE id = :id")
+    suspend fun get(id: Long): Network?
+
+    @Query("SELECT * FROM NetworkRelay ORDER BY networkId, position")
+    fun allRelays(): Flow<List<NetworkRelay>>
+
+    @Query("SELECT targetId FROM NetworkRelay WHERE networkId = :id ORDER BY position")
+    suspend fun relayIds(id: Long): List<Long>
+
+    @Query("SELECT SshTarget.* FROM NetworkRelay JOIN SshTarget ON SshTarget.id = targetId WHERE networkId = :id ORDER BY position")
+    suspend fun relays(id: Long): List<SshTarget>
+
+    @Query("SELECT name FROM Host WHERE networkId = :id ORDER BY name COLLATE NOCASE")
+    suspend fun hostNames(id: Long): List<String>
+
+    /** The new row's id, or -1 when an existing network was updated. */
+    @Upsert
+    suspend fun upsert(network: Network): Long
+
+    @Query("DELETE FROM NetworkRelay WHERE networkId = :id")
+    suspend fun clearRelays(id: Long)
+
+    @Insert
+    suspend fun insertRelays(relays: List<NetworkRelay>)
+
+    @Delete
+    suspend fun delete(network: Network)
+}
+
+suspend fun NetworkDao.setRelays(networkId: Long, targetIds: List<Long>) {
+    clearRelays(networkId)
+    insertRelays(targetIds.mapIndexed { i, targetId -> NetworkRelay(networkId, i, targetId) })
 }

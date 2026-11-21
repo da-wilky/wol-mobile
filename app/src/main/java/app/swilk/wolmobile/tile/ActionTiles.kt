@@ -39,7 +39,7 @@ abstract class ActionTileService(private val slot: Int) : TileService() {
         scope.launch {
             val action = action() ?: return@launch
             val run = Runnable {
-                if (action.confirmBeforeRun) {
+                if (action.interactive) {
                     openActivity(runIntent(this@ActionTileService, action.id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 } else {
                     enqueueRun(this@ActionTileService, action.id)

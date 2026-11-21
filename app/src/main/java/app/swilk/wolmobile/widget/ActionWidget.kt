@@ -125,7 +125,7 @@ private fun Cell(item: Item, showStatus: Boolean, modifier: GlanceModifier) {
         RunState.OK -> colors.primary to colors.onPrimary
         RunState.FAILED -> colors.error to colors.onError
     }
-    val onClick = if (item.action.confirmBeforeRun) {
+    val onClick = if (item.action.interactive) {
         actionStartActivity(runIntent(context, item.action.id))
     } else {
         actionRunCallback<RunCallback>(actionParametersOf(ActionIdKey to item.action.id))

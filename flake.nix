@@ -43,6 +43,8 @@
           # aapt2 that AGP downloads from Maven is dynamically linked and won't run on NixOS.
           GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${sdk}/build-tools/${buildTools}/aapt2";
         };
+      defaultAndroid = composeAndroid { withEmulator = false; };
+      defaultSdk = sdkFor defaultAndroid;
       emulatorAndroid = composeAndroid { withEmulator = true; };
       emulatorSdk = sdkFor emulatorAndroid;
       # Headless, for working over SSH: `nix run .#emulator [-- stop]`.
@@ -97,15 +99,83 @@
           esac
         '';
       };
+      # `nix run .#debug [-- <adb serial>]` from the checkout: install, launch, stream the app's log.
+      debugApp = pkgs.writeShellApplication {
+        name = "wolmobile-debug";
+        runtimeInputs = [ defaultAndroid.platform-tools pkgs.jdk21 ];
+        text = ''
+          export ANDROID_HOME=${defaultSdk} JAVA_HOME=${pkgs.jdk21.home}
+          export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${defaultSdk}/build-tools/${buildTools}/aapt2"
+          if [ $# -gt 0 ]; then export ANDROID_SERIAL=$1; fi
+          ./gradlew installDebug
+          adb shell am start -W -n app.swilk.wolmobile/.ui.MainActivity > /dev/null
+          exec adb logcat --pid="$(adb shell pidof app.swilk.wolmobile)"
+        '';
+      };
+      # `nix run .#adb-listen -- <serial> <port>`: adbd keeps listening on <port> without Wi-Fi (e.g. over NetBird on mobile data) until the phone reboots.
+      adbListenApp = pkgs.writeShellApplication {
+        name = "wolmobile-adb-listen";
+        runtimeInputs = [ defaultAndroid.platform-tools ];
+        text = ''
+          if [ $# -ne 2 ]; then
+            echo "usage: nix run .#adb-listen -- <serial, e.g. phone.netbird.selfhosted:41111> <port>" >&2
+            exit 1
+          fi
+          serial=$1 port=$2
+          adb -s "$serial" tcpip "$port"
+          host=''${serial%:*}
+          for _ in $(seq 15); do
+            sleep 1
+            if adb connect "$host:$port" | grep -q "^connected"; then
+              echo "connected: $host:$port"
+              exit 0
+            fi
+          done
+          echo "adbd did not come up on $host:$port" >&2
+          exit 1
+        '';
+      };
+      # Infisical is only reachable over NetBird, so the release workflow gets copies as GitHub secrets.
+      syncSecretsApp = pkgs.writeShellApplication {
+        name = "wolmobile-sync-secrets";
+        runtimeInputs = [ pkgs.infisical pkgs.gh ];
+        text = ''
+          # shellcheck disable=SC2016 # expanded by the inner bash
+          infisical run --projectId 037393a2-6c04-42e4-b0d6-a16985200880 --env="''${INFISICAL_ENV:-prod}" --path /wolmobile -- bash -c '
+            set -euo pipefail
+            printf %s "$KEYSTORE_BASE64" | tr -d "[:space:]" | gh secret set KEYSTORE_BASE64 --repo da-wilky/wol-mobile
+            for name in KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+              printf %s "''${!name}" | gh secret set "$name" --repo da-wilky/wol-mobile
+            done
+          '
+        '';
+      };
     in {
       devShells.${system} = {
-        default = shellFor (composeAndroid { withEmulator = false; });
+        default = shellFor defaultAndroid;
         emulator = shellFor emulatorAndroid;
       };
-      apps.${system}.emulator = {
-        type = "app";
-        program = "${emulatorApp}/bin/wolmobile-emulator";
-        meta.description = "Headless Android emulator for testing over SSH";
+      apps.${system} = {
+        emulator = {
+          type = "app";
+          program = "${emulatorApp}/bin/wolmobile-emulator";
+          meta.description = "Headless Android emulator for testing over SSH";
+        };
+        debug = {
+          type = "app";
+          program = "${debugApp}/bin/wolmobile-debug";
+          meta.description = "Install and launch the debug build, then stream its log";
+        };
+        adb-listen = {
+          type = "app";
+          program = "${adbListenApp}/bin/wolmobile-adb-listen";
+          meta.description = "Make the phone's adbd listen on a fixed TCP port";
+        };
+        sync-secrets = {
+          type = "app";
+          program = "${syncSecretsApp}/bin/wolmobile-sync-secrets";
+          meta.description = "Copy the release signing secrets from Infisical to GitHub";
+        };
       };
     };
 }

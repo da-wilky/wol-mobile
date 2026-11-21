@@ -50,21 +50,25 @@ private fun cascadeWarning(count: Int) =
 fun HostEditor(id: Long?, done: () -> Unit) {
     val context = LocalContext.current
     val dao = context.db.hosts()
+    val networks by context.db.networks().all().collectAsStateWithLifecycle(emptyList())
     val scope = rememberCoroutineScope()
     var loaded by rememberSaveable { mutableStateOf(id == null) }
     var name by rememberSaveable { mutableStateOf("") }
     var mac by rememberSaveable { mutableStateOf("") }
-    var broadcast by rememberSaveable { mutableStateOf("255.255.255.255") }
+    var networkId by rememberSaveable { mutableStateOf<Long?>(null) }
     var wolPort by rememberSaveable { mutableStateOf("9") }
     var probeAddress by rememberSaveable { mutableStateOf("") }
     var probePort by rememberSaveable { mutableStateOf("") }
     var usages by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(networks) {
+        if (id == null && networkId == null) networkId = networks.firstOrNull()?.id
+    }
     LaunchedEffect(id) {
         if (id == null) return@LaunchedEffect
         usages = dao.actionCount(id)
         if (loaded) return@LaunchedEffect
         dao.get(id)?.let {
-            name = it.name; mac = it.mac; broadcast = it.broadcastAddress; wolPort = it.wolPort.toString()
+            name = it.name; mac = it.mac; networkId = it.networkId; wolPort = it.wolPort.toString()
             probeAddress = it.probeAddress.orEmpty(); probePort = it.probePort?.toString().orEmpty()
         }
         loaded = true
@@ -73,7 +77,7 @@ fun HostEditor(id: Long?, done: () -> Unit) {
     val normalizedMac = normalizeMac(mac)
     val probeValid = probeAddress.isBlank() && probePort.isBlank() ||
         probeAddress.isNotBlank() && parsePort(probePort) != null
-    val valid = loaded && name.isNotBlank() && normalizedMac != null && broadcast.isNotBlank() &&
+    val valid = loaded && name.isNotBlank() && normalizedMac != null && networks.any { it.id == networkId } &&
         parsePort(wolPort) != null && probeValid
 
     EditorScaffold(
@@ -85,7 +89,7 @@ fun HostEditor(id: Long?, done: () -> Unit) {
                 dao.upsert(
                     Host(
                         id = id ?: 0, name = name.trim(), mac = normalizedMac!!,
-                        broadcastAddress = broadcast.trim(), wolPort = parsePort(wolPort)!!,
+                        networkId = networkId!!, wolPort = parsePort(wolPort)!!,
                         probeAddress = probeAddress.trim().ifEmpty { null }, probePort = parsePort(probePort),
                     ),
                 )
@@ -107,10 +111,8 @@ fun HostEditor(id: Long?, done: () -> Unit) {
         }
         FormSection("Wake-on-LAN") {
             MacField(mac) { mac = it }
-            Field(
-                "Broadcast address", broadcast, KeyboardType.Uri,
-                supporting = "Or your subnet's broadcast, e.g. 192.168.1.255",
-            ) { broadcast = it }
+            Picker("Network", networks.map { it.id to it.name }, networkId) { networkId = it }
+            Hint("The network decides how the packet gets there: directly, or through one of its relays.")
             Field("UDP port", wolPort, KeyboardType.Number, error = parsePort(wolPort) == null) { wolPort = it }
         }
         FormSection(
@@ -245,11 +247,12 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
     var command by rememberSaveable { mutableStateOf("") }
     var confirm by rememberSaveable { mutableStateOf(false) }
     var shortcut by rememberSaveable { mutableStateOf(false) }
+    var unlock by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(id) {
         if (loaded) return@LaunchedEffect
         dao.get(id!!)?.let {
             label = it.label; type = it.type; hostId = it.hostId; targetId = it.targetId
-            command = it.command.orEmpty(); confirm = it.confirmBeforeRun; shortcut = it.shortcut
+            command = it.command.orEmpty(); confirm = it.confirmBeforeRun; shortcut = it.shortcut; unlock = it.requireUnlock
         }
         loaded = true
     }
@@ -271,7 +274,7 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
                         id = id ?: 0, label = label.trim(), type = type,
                         hostId = hostId, targetId = targetId.takeUnless { wake },
                         command = command.trim().takeUnless { wake },
-                        confirmBeforeRun = confirm, shortcut = shortcut,
+                        confirmBeforeRun = confirm, shortcut = shortcut, requireUnlock = unlock,
                     ),
                 )
                 onActionsChanged(context)
@@ -324,6 +327,7 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
         }
         FormSection("Behaviour") {
             SwitchRow("Confirm before running", confirm, "Ask before running from the app, widgets, tiles and shortcuts.") { confirm = it }
+            SwitchRow("Require unlock", unlock, "Ask for fingerprint or screen lock before running, from anywhere.") { unlock = it }
             SwitchRow("App shortcut", shortcut, "Show when long-pressing the app icon.") { shortcut = it }
         }
     }

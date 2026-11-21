@@ -1,16 +1,31 @@
 package app.swilk.wolmobile.data
 
+import androidx.room3.ColumnInfo
 import androidx.room3.Entity
 import androidx.room3.ForeignKey
 import androidx.room3.Index
 import androidx.room3.PrimaryKey
 
+/** A LAN: [probeAddress] answers only from inside it; away from it, [relays][NetworkRelay] send the magic packet. */
 @Entity
+data class Network(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val probeAddress: String?,
+    val probePort: Int,
+    val broadcastAddress: String,
+    val relayCommand: String,
+)
+
+@Entity(
+    foreignKeys = [ForeignKey(Network::class, ["id"], ["networkId"], onDelete = ForeignKey.RESTRICT)],
+    indices = [Index("networkId")],
+)
 data class Host(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val mac: String,
-    val broadcastAddress: String,
+    val networkId: Long,
     val wolPort: Int,
     val probeAddress: String?,
     val probePort: Int?,
@@ -25,7 +40,7 @@ class SshKey(
 )
 
 @Entity(
-    foreignKeys = [ForeignKey(SshKey::class, ["id"], ["keyId"], onDelete = ForeignKey.RESTRICT)],
+    foreignKeys = [ForeignKey(SshKey::class, ["id"], ["keyId"], onDelete = ForeignKey.SET_NULL)],
     indices = [Index("keyId")],
 )
 data class SshTarget(
@@ -34,9 +49,20 @@ data class SshTarget(
     val address: String,
     val port: Int,
     val user: String,
-    val keyId: Long,
+    val keyId: Long?,
     val hostKey: String?,
 )
+
+/** Relays of a network, tried in [position] order. */
+@Entity(
+    primaryKeys = ["networkId", "position"],
+    foreignKeys = [
+        ForeignKey(Network::class, ["id"], ["networkId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(SshTarget::class, ["id"], ["targetId"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index("targetId")],
+)
+data class NetworkRelay(val networkId: Long, val position: Int, val targetId: Long)
 
 enum class ActionType { WAKE, SSH }
 
@@ -57,26 +83,25 @@ data class Action(
     val command: String?,
     val confirmBeforeRun: Boolean,
     val shortcut: Boolean,
-)
+    @ColumnInfo(defaultValue = "0") val requireUnlock: Boolean = false,
+) {
+    /** Runs through [app.swilk.wolmobile.ui.RunActionActivity] to confirm or unlock first. */
+    val interactive: Boolean get() = confirmBeforeRun || requireUnlock
+}
 
 const val TILE_COUNT = 3
 const val DEFAULT_RELAY_COMMAND = "wakeonlan {mac}"
 
 @Entity(
     foreignKeys = [
-        ForeignKey(SshTarget::class, ["id"], ["relayTargetId"], onDelete = ForeignKey.SET_NULL),
         ForeignKey(Action::class, ["id"], ["tile1"], onDelete = ForeignKey.SET_NULL),
         ForeignKey(Action::class, ["id"], ["tile2"], onDelete = ForeignKey.SET_NULL),
         ForeignKey(Action::class, ["id"], ["tile3"], onDelete = ForeignKey.SET_NULL),
     ],
-    indices = [Index("relayTargetId"), Index("tile1"), Index("tile2"), Index("tile3")],
+    indices = [Index("tile1"), Index("tile2"), Index("tile3")],
 )
 data class Settings(
     @PrimaryKey val id: Int = 0,
-    val homeProbeAddress: String? = null,
-    val homeProbePort: Int = 22,
-    val relayTargetId: Long? = null,
-    val relayCommand: String = DEFAULT_RELAY_COMMAND,
     val tile1: Long? = null,
     val tile2: Long? = null,
     val tile3: Long? = null,

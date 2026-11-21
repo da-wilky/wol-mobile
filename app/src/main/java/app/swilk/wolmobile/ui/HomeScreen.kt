@@ -28,7 +28,9 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -53,6 +55,7 @@ import app.swilk.wolmobile.data.Action
 import app.swilk.wolmobile.data.ActionType
 import app.swilk.wolmobile.data.Host
 import app.swilk.wolmobile.data.HostStatus
+import app.swilk.wolmobile.data.Network
 import app.swilk.wolmobile.data.RunState
 import app.swilk.wolmobile.db
 import app.swilk.wolmobile.run.checkAllHosts
@@ -76,6 +79,8 @@ fun HomeScreen(open: (NavKey) -> Unit) {
     var tab by rememberSaveable { mutableStateOf(Tab.ACTIONS) }
     val actions by db.actions().all().collectAsStateWithLifecycle(null)
     val hosts by db.hosts().all().collectAsStateWithLifecycle(emptyList())
+    val networks by db.networks().all().collectAsStateWithLifecycle(emptyList())
+    val relays by db.networks().allRelays().collectAsStateWithLifecycle(emptyList())
     val targets by db.targets().all().collectAsStateWithLifecycle(emptyList())
     val keys by db.keys().all().collectAsStateWithLifecycle(emptyList())
     val states by db.runs().states().collectAsStateWithLifecycle(emptyList())
@@ -110,7 +115,11 @@ fun HomeScreen(open: (NavKey) -> Unit) {
     }
 
     fun run(action: Action) {
-        if (action.confirmBeforeRun) confirming = action else enqueueRun(context, action.id)
+        when {
+            action.requireUnlock -> context.startActivity(runIntent(context, action.id))
+            action.confirmBeforeRun -> confirming = action
+            else -> enqueueRun(context, action.id)
+        }
     }
 
     Scaffold(
@@ -159,7 +168,7 @@ fun HomeScreen(open: (NavKey) -> Unit) {
             val currentActions = actions ?: return@PullToRefreshBox
             val empty = when (tab) {
                 Tab.ACTIONS -> currentActions.isEmpty()
-                Tab.HOSTS -> hosts.isEmpty()
+                Tab.HOSTS -> hosts.isEmpty() && networks.isEmpty()
                 Tab.SSH -> targets.isEmpty()
                 Tab.KEYS -> keys.isEmpty()
             }
@@ -225,17 +234,33 @@ fun HomeScreen(open: (NavKey) -> Unit) {
                             onEdit = { open(EditAction(action.id)) },
                         )
                     }
-                    Tab.HOSTS -> items(hosts, key = { it.id }) { host ->
+                    Tab.HOSTS -> {
+                        networks.forEach { network ->
+                            item(key = "network-${network.id}") {
+                                val relayNames = relays.filter { it.networkId == network.id }.mapNotNull { r -> targets.find { it.id == r.targetId }?.name }
+                                NetworkHeader(network, relayNames) { open(EditNetwork(network.id)) }
+                            }
+                            val members = hosts.filter { it.networkId == network.id }
+                            if (members.isEmpty()) item(key = "empty-${network.id}") { Hint("No hosts on this network yet.") }
+                            items(members, key = { it.id }) { host ->
                         ItemCard(
                             R.drawable.ic_host, host.name,
                             listOfNotNull(host.mac, host.probeAddress?.let { "$it:${host.probePort}" }).joinToString(" · "),
                             onClick = { open(EditHost(host.id)) },
                         ) { statuses.find { it.hostId == host.id }?.let { StatusChip(it) } }
+                            }
+                        }
+                        item(key = "add-network") {
+                            TextButton(onClick = { open(EditNetwork(null)) }) {
+                                Icon(painterResource(R.drawable.ic_add), null, Modifier.size(18.dp))
+                                Text("Add network", Modifier.padding(start = 8.dp))
+                            }
+                        }
                     }
                     Tab.SSH -> items(targets, key = { it.id }) { target ->
                         ItemCard(
                             R.drawable.ic_terminal, target.name,
-                            "${target.user}@${target.address}:${target.port} · key ${keys.find { it.id == target.keyId }?.name}",
+                            "${target.user}@${target.address}:${target.port} · ${keys.find { it.id == target.keyId }?.let { "key ${it.name}" } ?: "no key"}",
                             onClick = { open(EditTarget(target.id)) },
                         )
                     }
@@ -330,6 +355,30 @@ private fun ItemCard(
                 )
             }
             trailing()
+        }
+    }
+}
+
+@Composable
+private fun NetworkHeader(network: Network, relays: List<String>, onClick: () -> Unit) {
+    val summary = when {
+        network.probeAddress == null -> "Always sends directly"
+        relays.isEmpty() -> "Direct at ${network.probeAddress} · no relays"
+        else -> "Direct at ${network.probeAddress} · relays: ${relays.joinToString()}"
+    }
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+    ) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(R.drawable.ic_network), null, tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                Text(network.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(painterResource(R.drawable.ic_settings), "Edit network", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

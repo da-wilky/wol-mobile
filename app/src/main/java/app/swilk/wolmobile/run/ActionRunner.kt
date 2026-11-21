@@ -4,8 +4,8 @@ import android.content.Context
 import app.swilk.wolmobile.data.Action
 import app.swilk.wolmobile.data.ActionType
 import app.swilk.wolmobile.data.Host
+import app.swilk.wolmobile.data.Network
 import app.swilk.wolmobile.data.SshTarget
-import app.swilk.wolmobile.data.get
 import app.swilk.wolmobile.db
 import app.swilk.wolmobile.net.sendMagicPacket
 import app.swilk.wolmobile.net.tcpReachable
@@ -19,9 +19,9 @@ import java.security.GeneralSecurityException
 
 class Outcome(val ok: Boolean, val message: String, val output: String = "")
 
-fun relayCommand(template: String, host: Host): String = template
+fun relayCommand(network: Network, host: Host): String = network.relayCommand
     .replace("{mac}", host.mac)
-    .replace("{broadcast}", host.broadcastAddress)
+    .replace("{broadcast}", network.broadcastAddress)
     .replace("{port}", host.wolPort.toString())
 
 /** Maps the errors that cross the network and keystore boundaries to a message; anything else is a bug and propagates. */
@@ -53,22 +53,30 @@ suspend fun testSsh(context: Context, target: SshTarget, hostKey: (String) -> Un
 }
 
 private suspend fun wake(context: Context, host: Host): Outcome {
-    val db = context.db
-    val settings = db.settings().get()
+    val networks = context.db.networks()
+    val network = networks.get(host.networkId)!!
     val wifi = wifiNetwork(context)
-    val probe = settings.homeProbeAddress
-    val atHome = probe == null || wifi != null && tcpReachable(wifi, probe, settings.homeProbePort)
-    if (atHome) {
-        sendMagicPacket(wifi, host.mac, host.broadcastAddress, host.wolPort)
+    val probe = network.probeAddress
+    if (probe == null || wifi != null && tcpReachable(wifi, probe, network.probePort)) {
+        sendMagicPacket(wifi, host.mac, network.broadcastAddress, host.wolPort)
         return Outcome(true, "Magic packet sent to ${host.mac}")
     }
-    val relay = settings.relayTargetId?.let { db.targets().get(it) }
-        ?: return Outcome(false, "Not on the home network and no relay is configured")
-    return ssh(context, relay, relayCommand(settings.relayCommand, host))
+    val failures = mutableListOf<String>()
+    for (relay in networks.relays(network.id)) {
+        val outcome = guarded { ssh(context, relay, relayCommand(network, host)) }
+        if (outcome.ok) {
+            val skipped = if (failures.isEmpty()) "" else " after ${failures.joinToString("; ")}"
+            return Outcome(true, "Sent via ${relay.name}$skipped", outcome.output)
+        }
+        failures += "${relay.name}: ${outcome.message}"
+    }
+    if (failures.isEmpty()) return Outcome(false, "Not on ${network.name} and it has no relays")
+    return Outcome(false, "Every relay failed: ${failures.joinToString("; ")}")
 }
 
 private suspend fun connect(context: Context, target: SshTarget, command: String): SshResult {
-    val key = context.db.keys().get(target.keyId)!!
+    val key = target.keyId?.let { context.db.keys().get(it) }
+        ?: throw IOException("${target.name} has no SSH key. Pick one in the SSH target.")
     val pem = KeyCipher.decrypt(key.encryptedPrivateKey).toString(Charsets.UTF_8)
     return runSsh(target.address, target.port, target.user, pem, target.hostKey, command)
 }

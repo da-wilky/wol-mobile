@@ -57,7 +57,7 @@ Android app to wake LAN hosts (directly or via a relay over NetBird) and run SSH
 All milestones are implemented. Deviations from the original plan:
 
 - The SSH key belongs to the SSH target. For several keys on one server, create one target per key.
-- The relay (target and command template) is configured globally in Settings, not per action.
+- Hosts belong to networks. Each network has its own presence check, broadcast address, relay command and ordered relay list.
 - SSH actions can name an "affected host" so its status is followed after the command (e.g. poweroff).
 
 Verified: unit tests (MAC parsing, magic packet over UDP, key format parsed by sshj, fingerprints, relay template); the SSH client against a local OpenSSH sshd (first-use pinning, pinned key, changed host key, timeout, dropped connection, rejected key); debug and R8 release builds; lint.
