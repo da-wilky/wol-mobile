@@ -14,6 +14,14 @@ Wake-on-LAN and SSH actions for Android, from home-screen widgets, Quick Setting
 
 [**Download the APK**](https://github.com/da-wilky/wol-mobile/releases/latest)
 
+<br/>
+
+<img src="docs/screenshots/actions.png" width="19%" alt="Actions"/>
+<img src="docs/screenshots/actions-dark.png" width="19%" alt="Actions in dark mode"/>
+<img src="docs/screenshots/hosts.png" width="19%" alt="Hosts and networks"/>
+<img src="docs/screenshots/editor.png" width="19%" alt="Action editor"/>
+<img src="docs/screenshots/log.png" width="19%" alt="Run log"/>
+
 </div>
 
 ## Features
