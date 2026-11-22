@@ -43,11 +43,12 @@ Wake-on-LAN and SSH actions for Android, from home-screen widgets, Quick Setting
 ## How waking works
 
 ```mermaid
-flowchart LR
-    T([Widget · Tile · Shortcut]) --> P{Relay reachable<br/>over Wi-Fi?}
-    P -- "yes: at home" --> B[UDP broadcast<br/>magic packet]
-    P -- "no: away" --> S[SSH to the first<br/>reachable relay] --> R["relay runs<br/>wakeonlan {mac}"]
-    B --> H[(Host wakes)]
+flowchart TD
+    T(["Widget, tile or shortcut"]) --> P{"Home network<br/>reachable?"}
+    P -->|"yes, at home"| B["Broadcast the magic packet<br/>over Wi-Fi"]
+    P -->|"no, away"| S["SSH to the first<br/>reachable relay"]
+    S --> R["Relay runs wakeonlan"]
+    B --> H(["Host wakes"])
     R --> H
 ```
 
