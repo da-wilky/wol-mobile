@@ -11,6 +11,7 @@ Wake-on-LAN and SSH actions for Android, from home-screen widgets, Quick Setting
 ![Android 12+](https://img.shields.io/badge/Android-12%2B-3ddc84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7f52ff?style=flat-square&logo=kotlin&logoColor=white)
 ![Built with Nix](https://img.shields.io/badge/built%20with-Nix-5277c3?style=flat-square&logo=nixos&logoColor=white)
+[![License: GPL-3.0](https://img.shields.io/github/license/da-wilky/wol-mobile?style=flat-square)](LICENSE)
 
 [**Download the APK**](https://github.com/da-wilky/wol-mobile/releases/latest)
 
@@ -152,3 +153,7 @@ Local signed build: export `WOL_KEYSTORE` (path), `WOL_KEYSTORE_PASSWORD`, `WOL_
 - SSH commands time out after 60 s. A dropped connection without exit status (e.g. `poweroff`) counts as success.
 
 Built with Kotlin, Jetpack Compose, Glance, Room, WorkManager and [sshj](https://github.com/hierynomus/sshj).
+
+## License
+
+[GPL-3.0](LICENSE) © Samuel Wilk
