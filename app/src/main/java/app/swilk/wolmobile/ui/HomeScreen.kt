@@ -1,5 +1,11 @@
 package app.swilk.wolmobile.ui
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -50,6 +56,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
 import app.swilk.wolmobile.R
@@ -103,6 +110,7 @@ fun HomeScreen(open: (NavKey) -> Unit) {
     var confirming by remember { mutableStateOf<Action?>(null) }
     var newKey by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
+    var localNetwork by remember { mutableStateOf(true) }
 
     suspend fun refresh() {
         refreshing = true
@@ -110,6 +118,13 @@ fun HomeScreen(open: (NavKey) -> Unit) {
         refreshing = false
     }
     LaunchedEffect(Unit) { refresh() }
+    LifecycleResumeEffect(Unit) {
+        val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.CINNAMON_BUN ||
+            context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) == PackageManager.PERMISSION_GRANTED
+        if (granted && !localNetwork) scope.launch { refresh() }
+        localNetwork = granted
+        onPauseOrDispose {}
+    }
 
     // Announce runs that finish while this screen is open; entries that existed on entry are not news.
     var lastSeen by remember { mutableStateOf<Long?>(null) }
@@ -173,125 +188,128 @@ fun HomeScreen(open: (NavKey) -> Unit) {
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
-        PullToRefreshBox(
-            isRefreshing = refreshing,
-            onRefresh = { scope.launch { refresh() } },
-            modifier = Modifier.fillMaxSize().padding(padding),
-        ) {
-            val currentActions = actions ?: return@PullToRefreshBox
-            val empty = when (tab) {
-                Tab.ACTIONS -> currentActions.isEmpty()
-                Tab.HOSTS -> hosts.isEmpty() && networks.isEmpty()
-                Tab.SSH -> targets.isEmpty()
-                Tab.KEYS -> keys.isEmpty()
-            }
-            if (empty) {
-                // Scrollable so pull-to-refresh still works on an empty tab.
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    when (tab) {
-                        Tab.ACTIONS -> if (hosts.isEmpty() && targets.isEmpty()) {
-                            EmptyState(
-                                R.drawable.ic_power, "Nothing to run yet",
-                                "Add a host to wake it, or an SSH target to run commands on it.",
-                                EmptyAction("Add host") { open(EditHost(null)) },
-                                EmptyAction("Add SSH target") { tab = Tab.SSH },
-                            )
-                        } else {
-                            EmptyState(
-                                R.drawable.ic_power, "No actions yet",
-                                "Actions run from here, from home screen widgets, Quick Settings tiles and app shortcuts.",
-                                EmptyAction("New action") { open(EditAction(null)) },
-                            )
-                        }
-                        Tab.HOSTS -> EmptyState(
-                            R.drawable.ic_host, "No hosts",
-                            "Add a machine by its MAC address to wake it.",
-                            EmptyAction("Add host") { open(EditHost(null)) },
-                        )
-                        Tab.SSH -> if (keys.isEmpty()) {
-                            EmptyState(
-                                R.drawable.ic_key, "Create a key first",
-                                "SSH targets log in with a key generated on this phone.",
-                                EmptyAction("Create key") { tab = Tab.KEYS; newKey = true },
-                            )
-                        } else {
-                            EmptyState(
-                                R.drawable.ic_terminal, "No SSH targets",
-                                "Add a server to run commands on, or the Pi that wakes hosts while you're away.",
-                                EmptyAction("Add SSH target") { open(EditTarget(null)) },
-                            )
-                        }
-                        Tab.KEYS -> EmptyState(
-                            R.drawable.ic_key, "No keys",
-                            "Generate an Ed25519 key, then add its public key to the server's authorized_keys.",
-                            EmptyAction("Generate key") { newKey = true },
-                        )
-                    }
-                }
-                return@PullToRefreshBox
-            }
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                state = listState,
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            if (!localNetwork) LocalNetworkBanner()
+            PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = { scope.launch { refresh() } },
+                modifier = Modifier.fillMaxWidth().weight(1f),
             ) {
-                when (tab) {
-                    Tab.ACTIONS -> items(ordered, key = { it.id }) { action ->
-                        ReorderableItem(reorderState, key = action.id) { dragging ->
-                            ActionCard(
-                                action,
-                                host = hosts.find { it.id == action.hostId },
-                                status = statuses.find { it.hostId == action.hostId },
-                                targetName = targets.find { it.id == action.targetId }?.name,
-                                state = states.find { it.actionId == action.id }?.state ?: RunState.IDLE,
-                                onRun = { run(action) },
-                                onEdit = { open(EditAction(action.id)) },
-                                dragging = dragging,
-                                handle = Modifier.draggableHandle(onDragStopped = {
-                                    scope.launch {
-                                        db.actions().update(ordered.mapIndexed { i, a -> a.copy(position = i) })
-                                        onActionsChanged(context)
-                                    }
-                                }),
+                val currentActions = actions ?: return@PullToRefreshBox
+                val empty = when (tab) {
+                    Tab.ACTIONS -> currentActions.isEmpty()
+                    Tab.HOSTS -> hosts.isEmpty() && networks.isEmpty()
+                    Tab.SSH -> targets.isEmpty()
+                    Tab.KEYS -> keys.isEmpty()
+                }
+                if (empty) {
+                    // Scrollable so pull-to-refresh still works on an empty tab.
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        when (tab) {
+                            Tab.ACTIONS -> if (hosts.isEmpty() && targets.isEmpty()) {
+                                EmptyState(
+                                    R.drawable.ic_power, "Nothing to run yet",
+                                    "Add a host to wake it, or an SSH target to run commands on it.",
+                                    EmptyAction("Add host") { open(EditHost(null)) },
+                                    EmptyAction("Add SSH target") { tab = Tab.SSH },
+                                )
+                            } else {
+                                EmptyState(
+                                    R.drawable.ic_power, "No actions yet",
+                                    "Actions run from here, from home screen widgets, Quick Settings tiles and app shortcuts.",
+                                    EmptyAction("New action") { open(EditAction(null)) },
+                                )
+                            }
+                            Tab.HOSTS -> EmptyState(
+                                R.drawable.ic_host, "No hosts",
+                                "Add a machine by its MAC address to wake it.",
+                                EmptyAction("Add host") { open(EditHost(null)) },
+                            )
+                            Tab.SSH -> if (keys.isEmpty()) {
+                                EmptyState(
+                                    R.drawable.ic_key, "Create a key first",
+                                    "SSH targets log in with a key generated on this phone.",
+                                    EmptyAction("Create key") { tab = Tab.KEYS; newKey = true },
+                                )
+                            } else {
+                                EmptyState(
+                                    R.drawable.ic_terminal, "No SSH targets",
+                                    "Add a server to run commands on, or the Pi that wakes hosts while you're away.",
+                                    EmptyAction("Add SSH target") { open(EditTarget(null)) },
+                                )
+                            }
+                            Tab.KEYS -> EmptyState(
+                                R.drawable.ic_key, "No keys",
+                                "Generate an Ed25519 key, then add its public key to the server's authorized_keys.",
+                                EmptyAction("Generate key") { newKey = true },
                             )
                         }
                     }
-                    Tab.HOSTS -> {
-                        networks.forEach { network ->
-                            item(key = "network-${network.id}") {
-                                val relayNames = relays.filter { it.networkId == network.id }.mapNotNull { r -> targets.find { it.id == r.targetId }?.name }
-                                NetworkHeader(network, relayNames) { open(EditNetwork(network.id)) }
-                            }
-                            val members = hosts.filter { it.networkId == network.id }
-                            if (members.isEmpty()) item(key = "empty-${network.id}") { Hint("No hosts on this network yet.") }
-                            items(members, key = { it.id }) { host ->
-                        ItemCard(
-                            R.drawable.ic_host, host.name,
-                            listOfNotNull(host.mac, host.probeAddress?.let { address -> host.probePort?.let { "$address:$it" } ?: "ping $address" }).joinToString(" · "),
-                            onClick = { open(EditHost(host.id)) },
-                        ) { statuses.find { it.hostId == host.id }?.let { StatusChip(it) } }
+                    return@PullToRefreshBox
+                }
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    state = listState,
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    when (tab) {
+                        Tab.ACTIONS -> items(ordered, key = { it.id }) { action ->
+                            ReorderableItem(reorderState, key = action.id) { dragging ->
+                                ActionCard(
+                                    action,
+                                    host = hosts.find { it.id == action.hostId },
+                                    status = statuses.find { it.hostId == action.hostId },
+                                    targetName = targets.find { it.id == action.targetId }?.name,
+                                    state = states.find { it.actionId == action.id }?.state ?: RunState.IDLE,
+                                    onRun = { run(action) },
+                                    onEdit = { open(EditAction(action.id)) },
+                                    dragging = dragging,
+                                    handle = Modifier.draggableHandle(onDragStopped = {
+                                        scope.launch {
+                                            db.actions().update(ordered.mapIndexed { i, a -> a.copy(position = i) })
+                                            onActionsChanged(context)
+                                        }
+                                    }),
+                                )
                             }
                         }
-                        item(key = "add-network") {
-                            TextButton(onClick = { open(EditNetwork(null)) }) {
-                                Icon(painterResource(R.drawable.ic_add), null, Modifier.size(18.dp))
-                                Text("Add network", Modifier.padding(start = 8.dp))
+                        Tab.HOSTS -> {
+                            networks.forEach { network ->
+                                item(key = "network-${network.id}") {
+                                    val relayNames = relays.filter { it.networkId == network.id }.mapNotNull { r -> targets.find { it.id == r.targetId }?.name }
+                                    NetworkHeader(network, relayNames) { open(EditNetwork(network.id)) }
+                                }
+                                val members = hosts.filter { it.networkId == network.id }
+                                if (members.isEmpty()) item(key = "empty-${network.id}") { Hint("No hosts on this network yet.") }
+                                items(members, key = { it.id }) { host ->
+                            ItemCard(
+                                R.drawable.ic_host, host.name,
+                                listOfNotNull(host.mac, host.probeAddress?.let { address -> host.probePort?.let { "$address:$it" } ?: "ping $address" }).joinToString(" · "),
+                                onClick = { open(EditHost(host.id)) },
+                            ) { statuses.find { it.hostId == host.id }?.let { StatusChip(it) } }
+                                }
+                            }
+                            item(key = "add-network") {
+                                TextButton(onClick = { open(EditNetwork(null)) }) {
+                                    Icon(painterResource(R.drawable.ic_add), null, Modifier.size(18.dp))
+                                    Text("Add network", Modifier.padding(start = 8.dp))
+                                }
                             }
                         }
-                    }
-                    Tab.SSH -> items(targets, key = { it.id }) { target ->
-                        ItemCard(
-                            R.drawable.ic_terminal, target.name,
-                            "${target.user}@${target.address}:${target.port} · ${keys.find { it.id == target.keyId }?.let { "key ${it.name}" } ?: "no key"}",
-                            onClick = { open(EditTarget(target.id)) },
-                        )
-                    }
-                    Tab.KEYS -> items(keys, key = { it.id }) { key ->
-                        ItemCard(
-                            R.drawable.ic_key, key.name, fingerprint(key.publicKey.substringBeforeLast(' ')),
-                            onClick = { open(KeyDetail(key.id)) },
-                        )
+                        Tab.SSH -> items(targets, key = { it.id }) { target ->
+                            ItemCard(
+                                R.drawable.ic_terminal, target.name,
+                                "${target.user}@${target.address}:${target.port} · ${keys.find { it.id == target.keyId }?.let { "key ${it.name}" } ?: "no key"}",
+                                onClick = { open(EditTarget(target.id)) },
+                            )
+                        }
+                        Tab.KEYS -> items(keys, key = { it.id }) { key ->
+                            ItemCard(
+                                R.drawable.ic_key, key.name, fingerprint(key.publicKey.substringBeforeLast(' ')),
+                                onClick = { open(KeyDetail(key.id)) },
+                            )
+                        }
                     }
                 }
             }
@@ -306,6 +324,26 @@ fun HomeScreen(open: (NavKey) -> Unit) {
         )
     }
     if (newKey) NewKeyDialog(onDone = { newKey = false })
+}
+
+@Composable
+private fun LocalNetworkBanner() {
+    val context = LocalContext.current
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Local network access is off", style = MaterialTheme.typography.titleSmall)
+                Text("Waking and status checks at home won't work without a VPN.", style = MaterialTheme.typography.bodySmall)
+            }
+            TextButton(onClick = {
+                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
+            }) { Text("Allow") }
+        }
+    }
 }
 
 @Composable
