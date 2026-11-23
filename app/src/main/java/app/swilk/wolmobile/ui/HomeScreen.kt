@@ -78,7 +78,6 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 private enum class Tab(val label: String, @DrawableRes val icon: Int, val add: String) {
     ACTIONS("Actions", R.drawable.ic_power, "New action"),
     HOSTS("Hosts", R.drawable.ic_host, "New host"),
-    SSH("SSH", R.drawable.ic_terminal, "New SSH target"),
     KEYS("Keys", R.drawable.ic_key, "New key"),
 }
 
@@ -101,7 +100,7 @@ fun HomeScreen(open: (NavKey) -> Unit) {
     val hosts by db.hosts().all().collectAsStateWithLifecycle(emptyList())
     val networks by db.networks().all().collectAsStateWithLifecycle(emptyList())
     val relays by db.networks().allRelays().collectAsStateWithLifecycle(emptyList())
-    val targets by db.targets().all().collectAsStateWithLifecycle(emptyList())
+    val logins by db.logins().all().collectAsStateWithLifecycle(emptyList())
     val keys by db.keys().all().collectAsStateWithLifecycle(emptyList())
     val states by db.runs().states().collectAsStateWithLifecycle(emptyList())
     val statuses by db.status().all().collectAsStateWithLifecycle(emptyList())
@@ -178,7 +177,6 @@ fun HomeScreen(open: (NavKey) -> Unit) {
                     when (tab) {
                         Tab.ACTIONS -> open(EditAction(null))
                         Tab.HOSTS -> open(EditHost(null))
-                        Tab.SSH -> open(EditTarget(null))
                         Tab.KEYS -> newKey = true
                     }
                 },
@@ -199,19 +197,17 @@ fun HomeScreen(open: (NavKey) -> Unit) {
                 val empty = when (tab) {
                     Tab.ACTIONS -> currentActions.isEmpty()
                     Tab.HOSTS -> hosts.isEmpty() && networks.isEmpty()
-                    Tab.SSH -> targets.isEmpty()
                     Tab.KEYS -> keys.isEmpty()
                 }
                 if (empty) {
                     // Scrollable so pull-to-refresh still works on an empty tab.
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                         when (tab) {
-                            Tab.ACTIONS -> if (hosts.isEmpty() && targets.isEmpty()) {
+                            Tab.ACTIONS -> if (hosts.isEmpty()) {
                                 EmptyState(
                                     R.drawable.ic_power, "Nothing to run yet",
-                                    "Add a host to wake it, or an SSH target to run commands on it.",
+                                    "Add a host to wake it or to run commands on it.",
                                     EmptyAction("Add host") { open(EditHost(null)) },
-                                    EmptyAction("Add SSH target") { tab = Tab.SSH },
                                 )
                             } else {
                                 EmptyState(
@@ -222,22 +218,9 @@ fun HomeScreen(open: (NavKey) -> Unit) {
                             }
                             Tab.HOSTS -> EmptyState(
                                 R.drawable.ic_host, "No hosts",
-                                "Add a machine by its MAC address to wake it.",
+                                "Add a machine with its addresses, its MAC address to wake it and logins to run commands on it.",
                                 EmptyAction("Add host") { open(EditHost(null)) },
                             )
-                            Tab.SSH -> if (keys.isEmpty()) {
-                                EmptyState(
-                                    R.drawable.ic_key, "Create a key first",
-                                    "SSH targets log in with a key generated on this phone.",
-                                    EmptyAction("Create key") { tab = Tab.KEYS; newKey = true },
-                                )
-                            } else {
-                                EmptyState(
-                                    R.drawable.ic_terminal, "No SSH targets",
-                                    "Add a server to run commands on, or the Pi that wakes hosts while you're away.",
-                                    EmptyAction("Add SSH target") { open(EditTarget(null)) },
-                                )
-                            }
                             Tab.KEYS -> EmptyState(
                                 R.drawable.ic_key, "No keys",
                                 "Generate an Ed25519 key, then add its public key to the server's authorized_keys.",
@@ -260,7 +243,7 @@ fun HomeScreen(open: (NavKey) -> Unit) {
                                     action,
                                     host = hosts.find { it.id == action.hostId },
                                     status = statuses.find { it.hostId == action.hostId },
-                                    targetName = targets.find { it.id == action.targetId }?.name,
+                                    loginLabel = logins.find { it.login.id == action.loginId }?.label,
                                     state = states.find { it.actionId == action.id }?.state ?: RunState.IDLE,
                                     onRun = { run(action) },
                                     onEdit = { open(EditAction(action.id)) },
@@ -275,20 +258,31 @@ fun HomeScreen(open: (NavKey) -> Unit) {
                             }
                         }
                         Tab.HOSTS -> {
+                            fun hostItems(members: List<Host>) = items(members, key = { it.id }) { host ->
+                                ItemCard(
+                                    R.drawable.ic_host, host.name,
+                                    listOfNotNull(host.localAddress, host.vpnAddress, host.mac).joinToString(" · ").ifEmpty { "No address" },
+                                    onClick = { open(EditHost(host.id)) },
+                                ) { statuses.find { it.hostId == host.id }?.let { StatusChip(it) } }
+                            }
                             networks.forEach { network ->
                                 item(key = "network-${network.id}") {
-                                    val relayNames = relays.filter { it.networkId == network.id }.mapNotNull { r -> targets.find { it.id == r.targetId }?.name }
-                                    NetworkHeader(network, relayNames) { open(EditNetwork(network.id)) }
+                                    val relayNames = relays.filter { it.networkId == network.id }.mapNotNull { r -> logins.find { it.login.id == r.loginId }?.label }
+                                    NetworkHeader(network, hosts.find { it.id == network.presenceHostId }?.name, relayNames) { open(EditNetwork(network.id)) }
                                 }
                                 val members = hosts.filter { it.networkId == network.id }
                                 if (members.isEmpty()) item(key = "empty-${network.id}") { Hint("No hosts on this network yet.") }
-                                items(members, key = { it.id }) { host ->
-                            ItemCard(
-                                R.drawable.ic_host, host.name,
-                                listOfNotNull(host.mac, host.probeAddress?.let { address -> host.probePort?.let { "$address:$it" } ?: "ping $address" }).joinToString(" · "),
-                                onClick = { open(EditHost(host.id)) },
-                            ) { statuses.find { it.hostId == host.id }?.let { StatusChip(it) } }
+                                hostItems(members)
+                            }
+                            val unassigned = hosts.filter { it.networkId == null }
+                            if (unassigned.isNotEmpty()) {
+                                item(key = "no-network") {
+                                    Text(
+                                        "No network", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+                                    )
                                 }
+                                hostItems(unassigned)
                             }
                             item(key = "add-network") {
                                 TextButton(onClick = { open(EditNetwork(null)) }) {
@@ -296,13 +290,6 @@ fun HomeScreen(open: (NavKey) -> Unit) {
                                     Text("Add network", Modifier.padding(start = 8.dp))
                                 }
                             }
-                        }
-                        Tab.SSH -> items(targets, key = { it.id }) { target ->
-                            ItemCard(
-                                R.drawable.ic_terminal, target.name,
-                                "${target.user}@${target.address}:${target.port} · ${keys.find { it.id == target.keyId }?.let { "key ${it.name}" } ?: "no key"}",
-                                onClick = { open(EditTarget(target.id)) },
-                            )
                         }
                         Tab.KEYS -> items(keys, key = { it.id }) { key ->
                             ItemCard(
@@ -351,7 +338,7 @@ private fun ActionCard(
     action: Action,
     host: Host?,
     status: HostStatus?,
-    targetName: String?,
+    loginLabel: String?,
     state: RunState,
     onRun: () -> Unit,
     onEdit: () -> Unit,
@@ -374,7 +361,7 @@ private fun ActionCard(
             Column(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(action.label, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    if (wake) "Wakes ${host?.name}" else "On $targetName",
+                    if (wake) "Wakes ${host?.name}" else "On $loginLabel",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -432,11 +419,11 @@ private fun ItemCard(
 }
 
 @Composable
-private fun NetworkHeader(network: Network, relays: List<String>, onClick: () -> Unit) {
+private fun NetworkHeader(network: Network, presenceHost: String?, relays: List<String>, onClick: () -> Unit) {
     val summary = when {
-        network.probeAddress == null -> "Always sends directly"
-        relays.isEmpty() -> "Direct at ${network.probeAddress} · no relays"
-        else -> "Direct at ${network.probeAddress} · relays: ${relays.joinToString()}"
+        presenceHost == null -> "Always counts as here"
+        relays.isEmpty() -> "Here when $presenceHost answers · no relays"
+        else -> "Here when $presenceHost answers · relays: ${relays.joinToString()}"
     }
     Surface(
         onClick = onClick,

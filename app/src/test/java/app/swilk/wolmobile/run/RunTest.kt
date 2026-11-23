@@ -8,8 +8,8 @@ import org.junit.Test
 class RunTest {
     @Test
     fun relayCommandFillsPlaceholders() {
-        val network = Network(1, "Home", null, 22, "192.168.1.255", "wakeonlan -i {broadcast} -p {port} {mac}")
-        val host = Host(1, "nas", "AA:BB:CC:DD:EE:FF", network.id, 9, null, null)
+        val network = Network(1, "Home", null, "192.168.1.255", "wakeonlan -i {broadcast} -p {port} {mac}")
+        val host = Host(1, "nas", network.id, "AA:BB:CC:DD:EE:FF", 9, null, null, 22, null, false, null)
         assertEquals(
             "wakeonlan -i 192.168.1.255 -p 9 AA:BB:CC:DD:EE:FF",
             relayCommand(network, host),

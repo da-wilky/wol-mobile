@@ -1,24 +1,33 @@
 package app.swilk.wolmobile.data
 
-import androidx.room3.ColumnInfo
+import androidx.room3.Embedded
 import androidx.room3.Entity
 import androidx.room3.ForeignKey
 import androidx.room3.Index
 import androidx.room3.PrimaryKey
+import androidx.room3.Relation
+import kotlinx.serialization.Serializable
 
-/** A LAN: [probeAddress] answers only from inside it; away from it, [relays][NetworkRelay] send the magic packet. */
-@Entity
+/** A LAN. You're on it when [presenceHostId]'s local address answers over Wi-Fi; away from it, [relays][NetworkRelay] send the magic packet. */
+@Serializable
+@Entity(
+    foreignKeys = [ForeignKey(Host::class, ["id"], ["presenceHostId"], onDelete = ForeignKey.SET_NULL)],
+    indices = [Index("presenceHostId")],
+)
 data class Network(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
-    val probeAddress: String?,
-    val probePort: Int,
+    /** Null: always counts as on this network. */
+    val presenceHostId: Long?,
     val broadcastAddress: String,
     val relayCommand: String,
-    /** If set, presence also requires the probe to present this SSH host key, so another LAN with the same address doesn't count. */
-    @ColumnInfo(defaultValue = "NULL") val probeHostKey: String? = null,
 )
 
+/**
+ * A machine. On its network it's reached at [localAddress] over Wi-Fi, elsewhere at [vpnAddress].
+ * [hostKey] is its pinned SSH host key; presence checks and every login verify it.
+ */
+@Serializable
 @Entity(
     foreignKeys = [ForeignKey(Network::class, ["id"], ["networkId"], onDelete = ForeignKey.RESTRICT)],
     indices = [Index("networkId")],
@@ -26,11 +35,16 @@ data class Network(
 data class Host(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
-    val mac: String,
-    val networkId: Long,
+    val networkId: Long?,
+    val mac: String?,
     val wolPort: Int,
-    val probeAddress: String?,
-    val probePort: Int?,
+    val localAddress: String?,
+    val vpnAddress: String?,
+    val sshPort: Int,
+    val hostKey: String?,
+    val checkStatus: Boolean,
+    /** Null: ping instead. */
+    val statusPort: Int?,
 )
 
 @Entity
@@ -41,52 +55,65 @@ class SshKey(
     val encryptedPrivateKey: ByteArray,
 )
 
+@Serializable
 @Entity(
-    foreignKeys = [ForeignKey(SshKey::class, ["id"], ["keyId"], onDelete = ForeignKey.SET_NULL)],
-    indices = [Index("keyId")],
+    foreignKeys = [
+        ForeignKey(Host::class, ["id"], ["hostId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(SshKey::class, ["id"], ["keyId"], onDelete = ForeignKey.SET_NULL),
+    ],
+    indices = [Index("hostId"), Index("keyId")],
 )
-data class SshTarget(
+data class SshLogin(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val hostId: Long,
     val name: String,
-    val address: String,
-    val port: Int,
     val user: String,
     val keyId: Long?,
-    val hostKey: String?,
 )
 
+/** A login with its host, as relays and SSH actions use it. */
+data class Login(
+    @Embedded val login: SshLogin,
+    @Relation(parentColumns = ["hostId"], entityColumns = ["id"]) val host: Host,
+) {
+    val label get() = "${host.name} · ${login.name}"
+}
+
 /** Relays of a network, tried in [position] order. */
+@Serializable
 @Entity(
     primaryKeys = ["networkId", "position"],
     foreignKeys = [
         ForeignKey(Network::class, ["id"], ["networkId"], onDelete = ForeignKey.CASCADE),
-        ForeignKey(SshTarget::class, ["id"], ["targetId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(SshLogin::class, ["id"], ["loginId"], onDelete = ForeignKey.CASCADE),
     ],
-    indices = [Index("targetId")],
+    indices = [Index("loginId")],
 )
-data class NetworkRelay(val networkId: Long, val position: Int, val targetId: Long)
+data class NetworkRelay(val networkId: Long, val position: Int, val loginId: Long)
+
 
 enum class ActionType { WAKE, SSH }
 
-/** For SSH actions, [hostId] is optional and names the host whose status the command changes. Wake actions are deleted with their host by [HostDao.deleteWithWakeActions]. */
+/** For SSH actions, [hostId] is the login's host when the command changes its status, e.g. poweroff, and null otherwise. */
+@Serializable
 @Entity(
     foreignKeys = [
-        ForeignKey(Host::class, ["id"], ["hostId"], onDelete = ForeignKey.SET_NULL),
-        ForeignKey(SshTarget::class, ["id"], ["targetId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(Host::class, ["id"], ["hostId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(SshLogin::class, ["id"], ["loginId"], onDelete = ForeignKey.CASCADE),
     ],
-    indices = [Index("hostId"), Index("targetId")],
+    indices = [Index("hostId"), Index("loginId")],
 )
 data class Action(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val label: String,
     val type: ActionType,
     val hostId: Long?,
-    val targetId: Long?,
+    val loginId: Long?,
     val command: String?,
     val confirmBeforeRun: Boolean,
     val shortcut: Boolean,
-    @ColumnInfo(defaultValue = "0") val requireUnlock: Boolean = false,
-    @ColumnInfo(defaultValue = "0") val position: Int = 0,
+    val requireUnlock: Boolean = false,
+    val position: Int = 0,
 ) {
     /** Runs through [app.swilk.wolmobile.ui.RunActionActivity] to confirm or unlock first. */
     val interactive: Boolean get() = confirmBeforeRun || requireUnlock
@@ -95,6 +122,7 @@ data class Action(
 const val TILE_COUNT = 3
 const val DEFAULT_RELAY_COMMAND = "wakeonlan {mac}"
 
+@Serializable
 @Entity(
     foreignKeys = [
         ForeignKey(Action::class, ["id"], ["tile1"], onDelete = ForeignKey.SET_NULL),

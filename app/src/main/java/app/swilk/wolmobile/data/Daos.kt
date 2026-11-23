@@ -20,24 +20,20 @@ interface HostDao {
     @Query("SELECT * FROM Host WHERE id = :id")
     suspend fun get(id: Long): Host?
 
-    @Query("SELECT COUNT(*) FROM Action WHERE hostId = :id AND type = 'WAKE'")
-    suspend fun wakeActionCount(id: Long): Int
+    @Query("SELECT * FROM Host WHERE networkId = :id ORDER BY name COLLATE NOCASE")
+    suspend fun onNetwork(id: Long): List<Host>
+
+    @Query(
+        "SELECT (SELECT COUNT(*) FROM Action WHERE hostId = :id OR loginId IN (SELECT id FROM SshLogin WHERE hostId = :id)) + " +
+            "(SELECT COUNT(*) FROM NetworkRelay WHERE loginId IN (SELECT id FROM SshLogin WHERE hostId = :id))",
+    )
+    suspend fun actionCount(id: Long): Int
 
     @Upsert
     suspend fun upsert(host: Host)
 
-    @Query("DELETE FROM Action WHERE hostId = :id AND type = 'WAKE'")
-    suspend fun deleteWakeActions(id: Long)
-
     @Delete
     suspend fun delete(host: Host)
-
-    /** SSH actions only follow the host's status and keep running without it. */
-    @Transaction
-    suspend fun deleteWithWakeActions(host: Host) {
-        deleteWakeActions(host.id)
-        delete(host)
-    }
 }
 
 @Dao
@@ -48,8 +44,8 @@ interface SshKeyDao {
     @Query("SELECT * FROM SshKey WHERE id = :id")
     suspend fun get(id: Long): SshKey?
 
-    @Query("SELECT name FROM SshTarget WHERE keyId = :id ORDER BY name")
-    suspend fun targetNames(id: Long): List<String>
+    @Query("SELECT Host.name || ' · ' || SshLogin.name FROM SshLogin JOIN Host ON Host.id = hostId WHERE keyId = :id ORDER BY 1")
+    suspend fun loginNames(id: Long): List<String>
 
     @Upsert
     suspend fun upsert(key: SshKey)
@@ -59,21 +55,26 @@ interface SshKeyDao {
 }
 
 @Dao
-interface SshTargetDao {
-    @Query("SELECT * FROM SshTarget ORDER BY name COLLATE NOCASE")
-    fun all(): Flow<List<SshTarget>>
+interface LoginDao {
+    @Transaction
+    @Query("SELECT SshLogin.* FROM SshLogin JOIN Host ON Host.id = hostId ORDER BY Host.name COLLATE NOCASE, SshLogin.name COLLATE NOCASE")
+    fun all(): Flow<List<Login>>
 
-    @Query("SELECT * FROM SshTarget WHERE id = :id")
-    suspend fun get(id: Long): SshTarget?
+    @Transaction
+    @Query("SELECT * FROM SshLogin WHERE id = :id")
+    suspend fun get(id: Long): Login?
 
-    @Query("SELECT COUNT(*) FROM Action WHERE targetId = :id")
-    suspend fun actionCount(id: Long): Int
+    @Query("SELECT * FROM SshLogin WHERE hostId = :id ORDER BY name COLLATE NOCASE")
+    fun forHost(id: Long): Flow<List<SshLogin>>
+
+    @Query("SELECT (SELECT COUNT(*) FROM Action WHERE loginId = :id) + (SELECT COUNT(*) FROM NetworkRelay WHERE loginId = :id)")
+    suspend fun usageCount(id: Long): Int
 
     @Upsert
-    suspend fun upsert(target: SshTarget)
+    suspend fun upsert(login: SshLogin)
 
     @Delete
-    suspend fun delete(target: SshTarget)
+    suspend fun delete(login: SshLogin)
 }
 
 @Dao
@@ -179,14 +180,12 @@ interface NetworkDao {
     @Query("SELECT * FROM NetworkRelay ORDER BY networkId, position")
     fun allRelays(): Flow<List<NetworkRelay>>
 
-    @Query("SELECT targetId FROM NetworkRelay WHERE networkId = :id ORDER BY position")
+    @Query("SELECT loginId FROM NetworkRelay WHERE networkId = :id ORDER BY position")
     suspend fun relayIds(id: Long): List<Long>
 
-    @Query("SELECT SshTarget.* FROM NetworkRelay JOIN SshTarget ON SshTarget.id = targetId WHERE networkId = :id ORDER BY position")
-    suspend fun relays(id: Long): List<SshTarget>
-
-    @Query("SELECT name FROM Host WHERE networkId = :id ORDER BY name COLLATE NOCASE")
-    suspend fun hostNames(id: Long): List<String>
+    @Transaction
+    @Query("SELECT SshLogin.* FROM NetworkRelay JOIN SshLogin ON SshLogin.id = loginId WHERE networkId = :id ORDER BY position")
+    suspend fun relays(id: Long): List<Login>
 
     /** The new row's id, or -1 when an existing network was updated. */
     @Upsert
@@ -202,7 +201,100 @@ interface NetworkDao {
     suspend fun delete(network: Network)
 }
 
-suspend fun NetworkDao.setRelays(networkId: Long, targetIds: List<Long>) {
+suspend fun NetworkDao.setRelays(networkId: Long, loginIds: List<Long>) {
     clearRelays(networkId)
-    insertRelays(targetIds.mapIndexed { i, targetId -> NetworkRelay(networkId, i, targetId) })
+    insertRelays(loginIds.mapIndexed { i, loginId -> NetworkRelay(networkId, i, loginId) })
+}
+
+@Dao
+interface TransferDao {
+    @Query("SELECT * FROM Network")
+    suspend fun networks(): List<Network>
+
+    @Query("SELECT * FROM Host")
+    suspend fun hosts(): List<Host>
+
+    @Query("SELECT * FROM SshKey")
+    suspend fun keys(): List<SshKey>
+
+    @Query("SELECT * FROM SshLogin")
+    suspend fun logins(): List<SshLogin>
+
+    @Query("SELECT * FROM NetworkRelay")
+    suspend fun relays(): List<NetworkRelay>
+
+    @Query("SELECT * FROM Action")
+    suspend fun actions(): List<Action>
+
+    @Query("SELECT * FROM Settings WHERE id = 0")
+    suspend fun settings(): Settings?
+
+    @Query("DELETE FROM Settings")
+    suspend fun clearSettings()
+
+    @Query("DELETE FROM WidgetConfig")
+    suspend fun clearWidgets()
+
+    @Query("DELETE FROM Action")
+    suspend fun clearActions()
+
+    @Query("DELETE FROM NetworkRelay")
+    suspend fun clearRelays()
+
+    @Query("DELETE FROM SshLogin")
+    suspend fun clearLogins()
+
+    @Query("UPDATE Network SET presenceHostId = NULL")
+    suspend fun clearPresence()
+
+    @Query("DELETE FROM Host")
+    suspend fun clearHosts()
+
+    @Query("DELETE FROM Network")
+    suspend fun clearNetworks()
+
+    @Query("DELETE FROM SshKey")
+    suspend fun clearKeys()
+
+    @Insert
+    suspend fun insertNetworks(networks: List<Network>)
+
+    @Update
+    suspend fun updateNetworks(networks: List<Network>)
+
+    @Insert
+    suspend fun insertHosts(hosts: List<Host>)
+
+    @Insert
+    suspend fun insertKeys(keys: List<SshKey>)
+
+    @Insert
+    suspend fun insertLogins(logins: List<SshLogin>)
+
+    @Insert
+    suspend fun insertRelays(relays: List<NetworkRelay>)
+
+    @Insert
+    suspend fun insertActions(actions: List<Action>)
+
+    @Insert
+    suspend fun insertSettings(settings: Settings)
+
+    /** Networks and hosts reference each other, so presence is linked once both exist. */
+    @Transaction
+    suspend fun replaceAll(
+        networks: List<Network>, hosts: List<Host>, keys: List<SshKey>, logins: List<SshLogin>,
+        relays: List<NetworkRelay>, actions: List<Action>, settings: Settings?,
+    ) {
+        clearSettings(); clearWidgets(); clearActions(); clearRelays(); clearLogins()
+        clearPresence(); clearHosts(); clearNetworks(); clearKeys()
+        insertNetworks(networks.map { it.copy(presenceHostId = null) })
+        insertHosts(hosts)
+        updateNetworks(networks)
+        insertKeys(keys)
+        insertLogins(logins)
+        insertRelays(relays)
+        insertActions(actions)
+        settings?.let { insertSettings(it) }
+    }
 }

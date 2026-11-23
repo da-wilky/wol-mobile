@@ -52,7 +52,7 @@ fun KeyScreen(id: Long, done: () -> Unit) {
     var users by remember { mutableStateOf(emptyList<String>()) }
     LaunchedEffect(id) {
         key = dao.get(id)
-        users = dao.targetNames(id)
+        users = dao.loginNames(id)
     }
     val current = key ?: return
 

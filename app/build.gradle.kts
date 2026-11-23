@@ -70,6 +70,7 @@ dependencies {
     implementation(libs.navigation3.runtime)
     implementation(libs.navigation3.ui)
     implementation(libs.serialization.core)
+    implementation(libs.serialization.json)
     implementation(libs.room.runtime)
     implementation(libs.sqlite.framework)
     ksp(libs.room.compiler)

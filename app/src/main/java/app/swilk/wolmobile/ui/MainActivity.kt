@@ -23,7 +23,7 @@ const val EXTRA_OPEN_LOG = "openLog"
 @Serializable data object Home : NavKey
 @Serializable data class EditHost(val id: Long?) : NavKey
 @Serializable data class EditNetwork(val id: Long?) : NavKey
-@Serializable data class EditTarget(val id: Long?) : NavKey
+@Serializable data class EditLogin(val hostId: Long, val id: Long?) : NavKey
 @Serializable data class EditAction(val id: Long?) : NavKey
 @Serializable data class KeyDetail(val id: Long) : NavKey
 @Serializable data object SettingsRoute : NavKey
@@ -58,9 +58,9 @@ class MainActivity : ComponentActivity() {
                     predictivePopTransitionSpec = { popTransition() },
                     entryProvider = entryProvider {
                         entry<Home> { HomeScreen(open = { backStack.add(it) }) }
-                        entry<EditHost> { HostEditor(it.id, done = back) }
+                        entry<EditHost> { HostEditor(it.id, open = { key -> backStack.add(key) }, done = back) }
                         entry<EditNetwork> { NetworkEditor(it.id, done = back) }
-                        entry<EditTarget> { TargetEditor(it.id, done = back) }
+                        entry<EditLogin> { LoginEditor(it.hostId, it.id, done = back) }
                         entry<EditAction> { ActionEditor(it.id, done = back) }
                         entry<KeyDetail> { KeyScreen(it.id, done = back) }
                         entry<SettingsRoute> { SettingsScreen(done = back) }

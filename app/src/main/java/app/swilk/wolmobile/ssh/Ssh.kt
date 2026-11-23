@@ -22,10 +22,10 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** [exitStatus] is null when the connection closed before reporting one, e.g. after `poweroff`. */
-class SshResult(val exitStatus: Int?, val output: String, val hostKey: String)
+class SshResult(val exitStatus: Int?, val output: String)
 
 class HostKeyMismatch(seen: String) :
-    IOException("Host key changed (now ${fingerprint(seen)}). If expected, forget the host key in the SSH target.")
+    IOException("Host key changed (now ${fingerprint(seen)}). If expected, pin the host key again in the host.")
 
 /** Host key as "type base64-blob", the known_hosts format. */
 fun encodeHostKey(key: PublicKey): String {
@@ -39,27 +39,28 @@ fun fingerprint(hostKey: String): String {
     return "SHA256:" + Base64.getEncoder().withoutPadding().encodeToString(digest)
 }
 
-/** Trust on first use: with no [pinnedHostKey] any key is accepted and returned in [SshResult.hostKey] for pinning. */
 suspend fun runSsh(
     address: String,
     port: Int,
     user: String,
     privateKeyPem: String,
-    pinnedHostKey: String?,
+    pinnedHostKey: String,
     command: String,
     timeoutSeconds: Long = 60,
+    network: Network? = null,
 ): SshResult = withContext(Dispatchers.IO) {
     var seen: String? = null
     val verifier = object : HostKeyVerifier {
         override fun verify(hostname: String, port: Int, key: PublicKey): Boolean {
             val encoded = encodeHostKey(key).also { seen = it }
-            return pinnedHostKey == null || pinnedHostKey == encoded
+            return pinnedHostKey == encoded
         }
 
         // No preference: hinting the pinned type would force legacy ssh-rsa for RSA host keys.
         override fun findExistingAlgorithms(hostname: String, port: Int): List<String> = emptyList()
     }
     SSHClient(DefaultConfig()).use { client ->
+        network?.let { client.socketFactory = it.socketFactory }
         client.addHostKeyVerifier(verifier)
         client.connectTimeout = 10_000
         client.timeout = 30_000
@@ -67,7 +68,7 @@ suspend fun runSsh(
             client.connect(address, port)
         } catch (e: SSHException) {
             val actual = seen
-            if (actual != null && pinnedHostKey != null && actual != pinnedHostKey) throw HostKeyMismatch(actual)
+            if (actual != null && actual != pinnedHostKey) throw HostKeyMismatch(actual)
             throw e
         }
         client.authPublickey(user, OpenSSHKeyV1KeyFile().apply { init(privateKeyPem, null, null) })
@@ -100,7 +101,7 @@ suspend fun runSsh(
                     if (timedOut.get()) throw IOException("Command timed out after ${timeoutSeconds}s", e)
                     null
                 }
-                SshResult(exitStatus, output.toString().trim(), seen!!)
+                SshResult(exitStatus, output.toString().trim())
             }
         } finally {
             watchdog.cancel()
@@ -108,11 +109,11 @@ suspend fun runSsh(
     }
 }
 
-/** The host key [address]:[port] presents over [network], or null if it can't be reached. Stops after key exchange without logging in. */
-suspend fun probeHostKey(network: Network, address: String, port: Int): String? = withContext(Dispatchers.IO) {
+/** The host key [address]:[port] presents, over [network] if given, or null if it can't be reached. Stops after key exchange without logging in. */
+suspend fun probeHostKey(network: Network?, address: String, port: Int): String? = withContext(Dispatchers.IO) {
     var seen: String? = null
     SSHClient(DefaultConfig()).use { client ->
-        client.socketFactory = network.socketFactory
+        network?.let { client.socketFactory = it.socketFactory }
         client.connectTimeout = 1_500
         client.timeout = 3_000
         client.addHostKeyVerifier(object : HostKeyVerifier {

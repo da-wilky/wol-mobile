@@ -51,7 +51,7 @@ class RunActionWorker(context: Context, params: WorkerParameters) : CoroutineWor
         report(context, action.label, outcome)
         show(if (outcome.ok) RunState.OK else RunState.FAILED)
 
-        if (outcome.ok && host?.probeAddress != null) {
+        if (outcome.ok && host?.checkStatus == true) {
             when {
                 action.type == ActionType.WAKE -> enqueuePoll(context, action.label, host.id, expectUp = true)
                 upBefore != null -> enqueuePoll(context, action.label, host.id, expectUp = !upBefore)

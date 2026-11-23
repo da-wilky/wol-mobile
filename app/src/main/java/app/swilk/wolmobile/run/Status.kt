@@ -10,10 +10,12 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
-/** Probes the TCP port, or pings without one, without binding to Wi-Fi so it works both at home and through the VPN. Null if no probe is configured. */
+/** Probes the status port, or pings without one, at the address [route] picks. Null if the host isn't checked. */
 suspend fun checkHost(context: Context, host: Host): Boolean? {
-    val address = host.probeAddress ?: return null
-    val up = host.probePort?.let { tcpReachable(null, address, it, timeoutMs = 2_000) } ?: pingReachable(address)
+    if (!host.checkStatus) return null
+    val route = route(context, host) ?: return null
+    // Ping can't be bound to Wi-Fi; at home the LAN address is normally routed there anyway.
+    val up = host.statusPort?.let { tcpReachable(route.network, route.address, it, timeoutMs = 2_000) } ?: pingReachable(route.address)
     context.db.status().set(HostStatus(host.id, up, System.currentTimeMillis()))
     return up
 }

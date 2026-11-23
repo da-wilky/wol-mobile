@@ -3,8 +3,10 @@ package app.swilk.wolmobile.ui
 import android.app.KeyguardManager
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -13,6 +15,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,55 +35,78 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation3.runtime.NavKey
 import app.swilk.wolmobile.R
 import app.swilk.wolmobile.data.Action
 import app.swilk.wolmobile.data.ActionType
 import app.swilk.wolmobile.data.Host
-import app.swilk.wolmobile.data.SshTarget
+import app.swilk.wolmobile.data.Login
+import app.swilk.wolmobile.data.SshLogin
 import app.swilk.wolmobile.data.normalizeMac
 import app.swilk.wolmobile.db
 import app.swilk.wolmobile.run.Outcome
 import app.swilk.wolmobile.run.onActionsChanged
 import app.swilk.wolmobile.run.pinShortcut
-import app.swilk.wolmobile.run.testSsh
+import app.swilk.wolmobile.run.scanHostKey
+import app.swilk.wolmobile.run.testLogin
 import app.swilk.wolmobile.ssh.fingerprint
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 private fun cascadeWarning(count: Int) =
-    if (count == 0) "This cannot be undone." else "This also deletes $count action(s) that use it."
+    if (count == 0) "This cannot be undone." else "This also deletes $count action(s) and relay(s) that use it."
 
 @Composable
-fun HostEditor(id: Long?, done: () -> Unit) {
+fun HostEditor(id: Long?, open: (NavKey) -> Unit, done: () -> Unit) {
     val context = LocalContext.current
-    val dao = context.db.hosts()
-    val networks by context.db.networks().all().collectAsStateWithLifecycle(emptyList())
+    val db = context.db
+    val dao = db.hosts()
+    val networks by db.networks().all().collectAsStateWithLifecycle(emptyList())
+    val keys by db.keys().all().collectAsStateWithLifecycle(emptyList())
+    val logins by remember(id) { id?.let { db.logins().forHost(it) } ?: flowOf(emptyList()) }.collectAsStateWithLifecycle(emptyList())
     val scope = rememberCoroutineScope()
     var loaded by rememberSaveable { mutableStateOf(id == null) }
     var name by rememberSaveable { mutableStateOf("") }
-    var mac by rememberSaveable { mutableStateOf("") }
     var networkId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var localAddress by rememberSaveable { mutableStateOf("") }
+    var vpnAddress by rememberSaveable { mutableStateOf("") }
+    var mac by rememberSaveable { mutableStateOf("") }
     var wolPort by rememberSaveable { mutableStateOf("9") }
-    var probeAddress by rememberSaveable { mutableStateOf("") }
-    var probePort by rememberSaveable { mutableStateOf("") }
+    var sshPort by rememberSaveable { mutableStateOf("22") }
+    var hostKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var checkStatus by rememberSaveable { mutableStateOf(true) }
+    var statusPort by rememberSaveable { mutableStateOf("") }
     var usages by rememberSaveable { mutableIntStateOf(0) }
+    var pinning by remember { mutableStateOf(false) }
+    var pinError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(networks) {
         if (id == null && networkId == null) networkId = networks.firstOrNull()?.id
     }
     LaunchedEffect(id) {
         if (id == null) return@LaunchedEffect
-        usages = dao.wakeActionCount(id)
+        usages = dao.actionCount(id)
         if (loaded) return@LaunchedEffect
         dao.get(id)?.let {
-            name = it.name; mac = it.mac; networkId = it.networkId; wolPort = it.wolPort.toString()
-            probeAddress = it.probeAddress.orEmpty(); probePort = it.probePort?.toString().orEmpty()
+            name = it.name; networkId = it.networkId
+            localAddress = it.localAddress.orEmpty(); vpnAddress = it.vpnAddress.orEmpty()
+            mac = it.mac.orEmpty(); wolPort = it.wolPort.toString()
+            sshPort = it.sshPort.toString(); hostKey = it.hostKey
+            checkStatus = it.checkStatus; statusPort = it.statusPort?.toString().orEmpty()
         }
         loaded = true
     }
 
     val normalizedMac = normalizeMac(mac)
-    val probeValid = probePort.isBlank() || probeAddress.isNotBlank() && parsePort(probePort) != null
-    val valid = loaded && name.isNotBlank() && normalizedMac != null && networks.any { it.id == networkId } &&
-        parsePort(wolPort) != null && probeValid
+    val macValid = mac.isEmpty() || normalizedMac != null
+    val hasAddress = localAddress.isNotBlank() || vpnAddress.isNotBlank()
+    val statusValid = !checkStatus || hasAddress && (statusPort.isBlank() || parsePort(statusPort) != null)
+    val valid = loaded && name.isNotBlank() && macValid && (mac.isEmpty() || networkId != null) &&
+        parsePort(wolPort) != null && parsePort(sshPort) != null && statusValid
+    fun current() = Host(
+        id = id ?: 0, name = name.trim(), networkId = networkId, mac = normalizedMac, wolPort = parsePort(wolPort)!!,
+        localAddress = localAddress.trim().ifEmpty { null }, vpnAddress = vpnAddress.trim().ifEmpty { null },
+        sshPort = parsePort(sshPort)!!, hostKey = hostKey, checkStatus = checkStatus, statusPort = parsePort(statusPort),
+    )
 
     EditorScaffold(
         title = if (id == null) "New host" else "Edit host",
@@ -88,89 +114,7 @@ fun HostEditor(id: Long?, done: () -> Unit) {
         canSave = valid,
         onSave = {
             scope.launch {
-                dao.upsert(
-                    Host(
-                        id = id ?: 0, name = name.trim(), mac = normalizedMac!!,
-                        networkId = networkId!!, wolPort = parsePort(wolPort)!!,
-                        probeAddress = probeAddress.trim().ifEmpty { null }, probePort = parsePort(probePort),
-                    ),
-                )
-                onActionsChanged(context)
-                done()
-            }
-        },
-        deleteWarning = id?.let { cascadeWarning(usages) },
-        onDelete = {
-            scope.launch {
-                dao.get(id!!)?.let { dao.deleteWithWakeActions(it) }
-                onActionsChanged(context)
-                done()
-            }
-        },
-    ) {
-        FormSection("Host") {
-            Field("Name", name, placeholder = "nas") { name = it }
-        }
-        FormSection("Wake-on-LAN") {
-            MacField(mac) { mac = it }
-            Picker("Network", networks.map { it.id to it.name }, networkId) { networkId = it }
-            Hint("The network decides how the packet gets there: directly, or through one of its relays.")
-            Field("UDP port", wolPort, KeyboardType.Number, error = parsePort(wolPort) == null) { wolPort = it }
-        }
-        FormSection(
-            "Status check",
-            "Optional. Pings the address, or connects to a TCP port if you set one, e.g. 22 when ping is blocked. Must be reachable at home and over the VPN.",
-        ) {
-            Field("Address", probeAddress, KeyboardType.Uri, placeholder = "192.168.1.20") { probeAddress = it }
-            Field("TCP port", probePort, KeyboardType.Number, error = !probeValid, placeholder = "Empty to ping") { probePort = it }
-        }
-    }
-}
-
-@Composable
-fun TargetEditor(id: Long?, done: () -> Unit) {
-    val context = LocalContext.current
-    val db = context.db
-    val dao = db.targets()
-    val scope = rememberCoroutineScope()
-    val keys by db.keys().all().collectAsStateWithLifecycle(emptyList())
-    var loaded by rememberSaveable { mutableStateOf(id == null) }
-    var name by rememberSaveable { mutableStateOf("") }
-    var address by rememberSaveable { mutableStateOf("") }
-    var port by rememberSaveable { mutableStateOf("22") }
-    var user by rememberSaveable { mutableStateOf("") }
-    var keyId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var hostKey by rememberSaveable { mutableStateOf<String?>(null) }
-    var loadedEndpoint by rememberSaveable { mutableStateOf<String?>(null) }
-    var loadedHostKey by rememberSaveable { mutableStateOf<String?>(null) }
-    var usages by rememberSaveable { mutableIntStateOf(0) }
-    var testing by remember { mutableStateOf(false) }
-    var testResult by remember { mutableStateOf<Outcome?>(null) }
-    LaunchedEffect(id) {
-        if (id == null) return@LaunchedEffect
-        usages = dao.actionCount(id)
-        if (loaded) return@LaunchedEffect
-        dao.get(id)?.let {
-            name = it.name; address = it.address; port = it.port.toString(); user = it.user
-            keyId = it.keyId; hostKey = it.hostKey
-            loadedEndpoint = "${it.address}:${it.port}"; loadedHostKey = it.hostKey
-        }
-        loaded = true
-    }
-
-    val valid = loaded && name.isNotBlank() && address.isNotBlank() && parsePort(port) != null &&
-        user.isNotBlank() && keys.any { it.id == keyId }
-    fun current(pinned: String?) = SshTarget(id ?: 0, name.trim(), address.trim(), parsePort(port)!!, user.trim(), keyId!!, pinned)
-    // A pin belongs to an endpoint: moving the target to another address drops a pin that wasn't renewed by a test.
-    fun pinToSave() = if ("${address.trim()}:${parsePort(port)}" != loadedEndpoint && hostKey == loadedHostKey) null else hostKey
-
-    EditorScaffold(
-        title = if (id == null) "New SSH target" else "Edit SSH target",
-        onBack = done,
-        canSave = valid,
-        onSave = {
-            scope.launch {
-                dao.upsert(current(pinToSave()))
+                dao.upsert(current())
                 onActionsChanged(context)
                 done()
             }
@@ -184,26 +128,142 @@ fun TargetEditor(id: Long?, done: () -> Unit) {
             }
         },
     ) {
-        FormSection("Connection") {
-            Field("Name", name, placeholder = "pi") { name = it }
-            Field("Address", address, KeyboardType.Uri, placeholder = "192.168.1.2 or a NetBird name") { address = it }
-            Field("Port", port, KeyboardType.Number, error = parsePort(port) == null) { port = it }
-            Field("User", user) { user = it }
+        FormSection("Host") {
+            Field("Name", name, placeholder = "nas") { name = it }
+            Picker("Network", networks.map { it.id to it.name }, networkId, noneLabel = "None") { networkId = it }
+            Hint("The network decides how the host is reached: directly at home, through the VPN or relays elsewhere.")
         }
-        FormSection("Authentication") {
-            if (keys.isEmpty()) Text("Create a key in the Keys tab first.", color = MaterialTheme.colorScheme.error)
-            Picker("Key", keys.map { it.id to it.name }, keyId) { keyId = it }
+        FormSection("Addresses") {
+            Field(
+                "Local address", localAddress, KeyboardType.Uri, placeholder = "192.168.1.20",
+                supporting = "Used over Wi-Fi while you're on the host's network",
+            ) { localAddress = it }
+            Field(
+                "VPN address", vpnAddress, KeyboardType.Uri, placeholder = "nas.netbird.cloud",
+                supporting = "Used everywhere else",
+            ) { vpnAddress = it }
+        }
+        FormSection("Wake-on-LAN", "Optional. Needs a network: the magic packet is broadcast there or sent by its relays.") {
+            MacField(mac) { mac = it }
+            if (mac.isNotEmpty() && networkId == null) Text("Pick a network to wake this host.", color = MaterialTheme.colorScheme.error)
+            Field("UDP port", wolPort, KeyboardType.Number, error = parsePort(wolPort) == null) { wolPort = it }
         }
         FormSection(
-            "Host key",
-            "Test connection pins the server's key; every later connection must present the same one. Actions using this target only run once it's pinned.",
+            "SSH",
+            "Pin the host key once while the host is reachable; every login must then present the same one. Logins only work once it's pinned.",
         ) {
+            Field("Port", sshPort, KeyboardType.Number, error = parsePort(sshPort) == null) { sshPort = it }
             val pinned = hostKey
             if (pinned == null) {
-                Text("Not pinned yet: test the connection", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                Text("Host key not pinned", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             } else {
                 Text(fingerprint(pinned), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
             }
+            pinError?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(
+                    enabled = valid && hasAddress && !pinning,
+                    onClick = {
+                        pinning = true
+                        pinError = null
+                        scope.launch {
+                            val scan = scanHostKey(context, current())
+                            when {
+                                scan == null -> pinError = "Set an address first"
+                                scan.hostKey == null -> pinError = "No SSH server answered at ${scan.address}:$sshPort"
+                                else -> hostKey = scan.hostKey
+                            }
+                            pinning = false
+                        }
+                    },
+                ) { Text(if (pinned == null) "Pin host key" else "Pin again") }
+                if (pinning) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
+                if (pinned != null) TextButton(onClick = { hostKey = null; pinError = null }) { Text("Forget") }
+            }
+        }
+        FormSection("Logins", "A user and key to log in with, used by SSH actions and relays. Use one per key, e.g. one for wakeonlan and one for poweroff.") {
+            if (id == null) {
+                Hint("Save the host to add logins.")
+            } else {
+                logins.forEach { login ->
+                    Surface(
+                        onClick = { open(EditLogin(id, login.id)) },
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            Text(login.name, style = MaterialTheme.typography.bodyLarge)
+                            Hint("${login.user} · ${keys.find { it.id == login.keyId }?.let { "key ${it.name}" } ?: "no key"}")
+                        }
+                    }
+                }
+                OutlinedButton(onClick = { open(EditLogin(id, null)) }) { Text("Add login") }
+            }
+        }
+        FormSection("Status check") {
+            SwitchRow("Check status", checkStatus, "Pings the host, or connects to a TCP port if you set one, e.g. 22 when ping is blocked.") { checkStatus = it }
+            if (checkStatus) {
+                if (!hasAddress) Text("Set an address to check.", color = MaterialTheme.colorScheme.error)
+                Field("TCP port", statusPort, KeyboardType.Number, error = !statusValid, placeholder = "Empty to ping") { statusPort = it }
+            }
+        }
+    }
+}
+
+@Composable
+fun LoginEditor(hostId: Long, id: Long?, done: () -> Unit) {
+    val context = LocalContext.current
+    val db = context.db
+    val dao = db.logins()
+    val scope = rememberCoroutineScope()
+    val keys by db.keys().all().collectAsStateWithLifecycle(emptyList())
+    var host by remember { mutableStateOf<Host?>(null) }
+    var loaded by rememberSaveable { mutableStateOf(id == null) }
+    var name by rememberSaveable { mutableStateOf("") }
+    var user by rememberSaveable { mutableStateOf("") }
+    var keyId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var usages by rememberSaveable { mutableIntStateOf(0) }
+    var testing by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<Outcome?>(null) }
+    LaunchedEffect(id) {
+        host = db.hosts().get(hostId)
+        if (id == null) return@LaunchedEffect
+        usages = dao.usageCount(id)
+        if (loaded) return@LaunchedEffect
+        dao.get(id)?.login?.let { name = it.name; user = it.user; keyId = it.keyId }
+        loaded = true
+    }
+
+    val valid = loaded && name.isNotBlank() && user.isNotBlank() && keys.any { it.id == keyId }
+    fun current() = SshLogin(id ?: 0, hostId, name.trim(), user.trim(), keyId!!)
+
+    EditorScaffold(
+        title = if (id == null) "New login" else "Edit login",
+        onBack = done,
+        canSave = valid,
+        onSave = {
+            scope.launch {
+                dao.upsert(current())
+                onActionsChanged(context)
+                done()
+            }
+        },
+        deleteWarning = id?.let { cascadeWarning(usages) },
+        onDelete = {
+            scope.launch {
+                dao.get(id!!)?.let { dao.delete(it.login) }
+                onActionsChanged(context)
+                done()
+            }
+        },
+    ) {
+        FormSection("Login on ${host?.name.orEmpty()}") {
+            Field("Name", name, placeholder = "poweroff") { name = it }
+            Field("User", user) { user = it }
+            if (keys.isEmpty()) Text("Create a key in the Keys tab first.", color = MaterialTheme.colorScheme.error)
+            Picker("Key", keys.map { it.id to it.name }, keyId) { keyId = it }
+        }
+        FormSection("Test", "Logs in and runs `true` at the address the host is reachable at right now.") {
             testResult?.let { result ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(
@@ -214,20 +274,19 @@ fun TargetEditor(id: Long?, done: () -> Unit) {
                     Text(result.message, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(
-                    enabled = valid && !testing,
+                    enabled = valid && host != null && !testing,
                     onClick = {
                         testing = true
                         testResult = null
                         scope.launch {
-                            testResult = testSsh(context, current(hostKey)) { hostKey = it }
+                            testResult = testLogin(context, Login(current(), host!!))
                             testing = false
                         }
                     },
-                ) { Text("Test connection") }
+                ) { Text("Test login") }
                 if (testing) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
-                if (pinned != null) TextButton(onClick = { hostKey = null; testResult = null }) { Text("Forget") }
             }
         }
     }
@@ -240,12 +299,13 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
     val dao = db.actions()
     val scope = rememberCoroutineScope()
     val hosts by db.hosts().all().collectAsStateWithLifecycle(emptyList())
-    val targets by db.targets().all().collectAsStateWithLifecycle(emptyList())
+    val logins by db.logins().all().collectAsStateWithLifecycle(emptyList())
     var loaded by rememberSaveable { mutableStateOf(id == null) }
     var label by rememberSaveable { mutableStateOf("") }
     var type by rememberSaveable { mutableStateOf(ActionType.WAKE) }
     var hostId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var targetId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var loginId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var followStatus by rememberSaveable { mutableStateOf(false) }
     var command by rememberSaveable { mutableStateOf("") }
     var confirm by rememberSaveable { mutableStateOf(false) }
     var shortcut by rememberSaveable { mutableStateOf(false) }
@@ -254,15 +314,18 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
     LaunchedEffect(id) {
         if (loaded) return@LaunchedEffect
         dao.get(id!!)?.let {
-            label = it.label; type = it.type; hostId = it.hostId; targetId = it.targetId
+            label = it.label; type = it.type; hostId = it.hostId; loginId = it.loginId
+            followStatus = it.type == ActionType.SSH && it.hostId != null
             command = it.command.orEmpty(); confirm = it.confirmBeforeRun; shortcut = it.shortcut; unlock = it.requireUnlock; position = it.position
         }
         loaded = true
     }
 
+    val wakeable = hosts.filter { it.mac != null && it.networkId != null }
+    val login = logins.find { it.login.id == loginId }
     val valid = loaded && label.isNotBlank() && when (type) {
-        ActionType.WAKE -> hosts.any { it.id == hostId }
-        ActionType.SSH -> targets.any { it.id == targetId } && command.isNotBlank()
+        ActionType.WAKE -> wakeable.any { it.id == hostId }
+        ActionType.SSH -> login != null && command.isNotBlank()
     }
 
     EditorScaffold(
@@ -275,7 +338,8 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
                 dao.upsert(
                     Action(
                         id = id ?: 0, label = label.trim(), type = type,
-                        hostId = hostId, targetId = targetId.takeUnless { wake },
+                        hostId = if (wake) hostId else login!!.host.id.takeIf { followStatus },
+                        loginId = loginId.takeUnless { wake },
                         command = command.trim().takeUnless { wake },
                         confirmBeforeRun = confirm, shortcut = shortcut, requireUnlock = unlock,
                         position = position ?: dao.nextPosition(),
@@ -312,21 +376,22 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
                 }
             }
         }
-        val hostOptions = hosts.map { it.id to it.name }
         when (type) {
             ActionType.WAKE -> FormSection(
                 "Wake",
                 "On the host's network the magic packet is sent directly; elsewhere the network's relays send it.",
             ) {
-                if (hosts.isEmpty()) Text("Add a host first.", color = MaterialTheme.colorScheme.error)
-                Picker("Host", hostOptions, hostId) { hostId = it }
+                if (wakeable.isEmpty()) Text("Add a host with a MAC address and a network first.", color = MaterialTheme.colorScheme.error)
+                Picker("Host", wakeable.map { it.id to it.name }, hostId) { hostId = it }
             }
             ActionType.SSH -> FormSection("Command") {
-                if (targets.isEmpty()) Text("Add an SSH target first.", color = MaterialTheme.colorScheme.error)
-                Picker("SSH target", targets.map { it.id to it.name }, targetId) { targetId = it }
+                if (logins.isEmpty()) Text("Add a login to a host first.", color = MaterialTheme.colorScheme.error)
+                Picker("Login", logins.map { it.login.id to it.label }, loginId) { loginId = it }
                 Field("Command", command, singleLine = false, placeholder = "sudo poweroff") { command = it }
-                Picker("Affected host (optional)", hostOptions, hostId, noneLabel = "None") { hostId = it }
-                Hint("If set, the host's status is followed after the command, e.g. until it is down after a poweroff.")
+                SwitchRow(
+                    "Follow host status", followStatus,
+                    "For commands that turn the host off or on: its status is checked until it changes.",
+                ) { followStatus = it }
             }
         }
         FormSection("Behaviour") {
