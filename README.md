@@ -138,7 +138,7 @@ Local signed build: export `WOL_KEYSTORE` (path), `WOL_KEYSTORE_PASSWORD`, `WOL_
    with a matching sudoers rule, e.g. `user ALL=(root) NOPASSWD: /usr/sbin/poweroff`.
 2. **Hosts** tab: per machine, its network, *local address* (used over Wi-Fi on its network), *VPN address* (used elsewhere), MAC to wake it, and a status check (ping, or a TCP port such as 22). Tap *Pin host key*; logins to an unpinned host refuse to run. Add *logins* (name, user, key), e.g. `wol` on the Pi for the relay and `poweroff` on the desktop. After a wake, a host that doesn't answer within 2 minutes is reported as failed.
 3. **Hosts** tab, network header (a fresh install has "Home"):
-   - *Presence host*: a host whose local address only answers on that LAN, e.g. the Pi, probed on its SSH port over Wi-Fi (bypassing the VPN). If its host key is pinned it must match, so another Wi-Fi where the same address answers doesn't count as home.
+   - *Presence host*: a host whose local address only answers on that LAN, e.g. the Pi, probed on its SSH port over Wi-Fi (bypassing the VPN). If its host key is pinned it must match, so another Wi-Fi where the same address answers doesn't count as home. Without a presence host, you're home when the Wi-Fi's subnet contains one of the network's local addresses (no verification).
    - *Wake*: broadcast address and the relay command, e.g. `wakeonlan {mac}` (install `wakeonlan` on the relays).
    - *Relays*: logins on hosts in that LAN, tried in order until one runs the command successfully. A `command=`-restricted key ignores the requested command, so the relay key needs either no restriction or a wrapper that validates `$SSH_ORIGINAL_COMMAND`.
 4. **Settings** → *Quick Settings tiles*: assign actions to the three tile slots, then add the tiles from the Quick Settings edit panel.
@@ -148,7 +148,7 @@ Local signed build: export `WOL_KEYSTORE` (path), `WOL_KEYSTORE_PASSWORD`, `WOL_
 ## Notes
 
 - If the VPN app forbids bypassing it, home detection fails and wakes always go through the relay.
-- Status checks use the same address choice as SSH. With a TCP port, a refused connection counts as up. With a widget's status enabled, checks run every ~15 minutes.
+- Status checks use the same address choice as SSH. Without a TCP port they ping, resolving the name in the app first, since the system ping can't resolve VPN names such as NetBird's. With a TCP port, a refused connection counts as up. With a widget's status enabled, checks run every ~15 minutes.
 - SSH commands time out after 60 s. A dropped connection without exit status (e.g. `poweroff`) counts as success.
 - *Settings* → *Transfer setup* exports hosts, networks, keys, logins, actions and tiles to a file and imports it into another install (e.g. debug → release, or a new phone), replacing what's there. Private keys in the file are encrypted with a passphrase (PBKDF2-SHA256, AES-GCM). Widgets need setting up again.
 

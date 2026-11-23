@@ -7,6 +7,7 @@ import app.swilk.wolmobile.data.Host
 import app.swilk.wolmobile.data.Login
 import app.swilk.wolmobile.data.Network
 import app.swilk.wolmobile.db
+import app.swilk.wolmobile.net.inWifiSubnet
 import app.swilk.wolmobile.net.sendMagicPacket
 import app.swilk.wolmobile.net.tcpReachable
 import app.swilk.wolmobile.net.wifiNetwork
@@ -71,11 +72,16 @@ suspend fun route(context: Context, host: Host): Route? {
     }
 }
 
-/** True when the network's presence host answers at its local address over Wi-Fi, presenting its pinned key if it has one. */
+/**
+ * True when the network's presence host answers at its local address over Wi-Fi, presenting its pinned key if it has one.
+ * Without a presence host, when the Wi-Fi's subnet contains a local address of one of the network's hosts.
+ */
 private suspend fun onNetwork(context: Context, network: Network, wifi: android.net.Network?): Boolean {
-    val probe = network.presenceHostId?.let { context.db.hosts().get(it) } ?: return true
-    val address = probe.localAddress ?: return false
     if (wifi == null) return false
+    val hosts = context.db.hosts()
+    val probe = network.presenceHostId?.let { hosts.get(it) }
+        ?: return inWifiSubnet(context, wifi, hosts.onNetwork(network.id).mapNotNull { it.localAddress })
+    val address = probe.localAddress ?: return false
     val pinned = probe.hostKey ?: return tcpReachable(wifi, address, probe.sshPort)
     return probeHostKey(wifi, address, probe.sshPort) == pinned
 }

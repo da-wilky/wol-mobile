@@ -115,6 +115,7 @@ fun HostEditor(id: Long?, open: (NavKey) -> Unit, done: () -> Unit) {
         onSave = {
             scope.launch {
                 dao.upsert(current())
+                if (!checkStatus && id != null) db.status().clear(id)
                 onActionsChanged(context)
                 done()
             }

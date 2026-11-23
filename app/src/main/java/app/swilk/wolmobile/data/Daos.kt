@@ -144,6 +144,9 @@ interface StatusDao {
     @Query("SELECT * FROM HostStatus")
     fun all(): Flow<List<HostStatus>>
 
+    @Query("DELETE FROM HostStatus WHERE hostId = :id")
+    suspend fun clear(id: Long)
+
     @Upsert
     suspend fun set(status: HostStatus)
 }

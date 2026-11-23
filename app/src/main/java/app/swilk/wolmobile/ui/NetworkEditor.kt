@@ -87,12 +87,13 @@ fun NetworkEditor(id: Long?, done: () -> Unit) {
             "Presence",
             "You're on this network when this host answers at its local address and SSH port over Wi-Fi, bypassing the VPN. " +
                 "If its host key is pinned it must present it, so another Wi-Fi where the same address answers doesn't count. " +
-                "Then hosts are reached at their local addresses and magic packets are sent directly.",
+                "Without one, you're on this network when the Wi-Fi's subnet contains a host's local address; nothing is verified. " +
+                "On this network, hosts are reached at their local addresses and magic packets are sent directly.",
         ) {
             if (hosts.isEmpty()) Hint("Add hosts with a local address to this network first.")
             Picker(
                 "Presence host", hosts.filter { it.localAddress != null }.map { it.id to it.name }, presenceHostId,
-                noneLabel = "None: always on this network",
+                noneLabel = "None: match the Wi-Fi subnet",
             ) { presenceHostId = it }
         }
         FormSection("Wake") {

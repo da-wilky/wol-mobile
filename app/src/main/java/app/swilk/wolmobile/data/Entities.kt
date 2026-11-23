@@ -8,7 +8,7 @@ import androidx.room3.PrimaryKey
 import androidx.room3.Relation
 import kotlinx.serialization.Serializable
 
-/** A LAN. You're on it when [presenceHostId]'s local address answers over Wi-Fi; away from it, [relays][NetworkRelay] send the magic packet. */
+/** A LAN. You're on it when [presenceHostId]'s local address answers over Wi-Fi, or without one when the Wi-Fi subnet contains a host's local address; away from it, [relays][NetworkRelay] send the magic packet. */
 @Serializable
 @Entity(
     foreignKeys = [ForeignKey(Host::class, ["id"], ["presenceHostId"], onDelete = ForeignKey.SET_NULL)],
@@ -17,7 +17,6 @@ import kotlinx.serialization.Serializable
 data class Network(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
-    /** Null: always counts as on this network. */
     val presenceHostId: Long?,
     val broadcastAddress: String,
     val relayCommand: String,

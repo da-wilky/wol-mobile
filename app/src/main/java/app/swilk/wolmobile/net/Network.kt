@@ -15,6 +15,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 import java.net.ConnectException
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.TimeUnit
@@ -58,16 +60,47 @@ suspend fun tcpReachable(network: Network?, address: String, port: Int, timeoutM
         }
     }
 
-/** Apps can't open raw sockets; the system ping uses an unprivileged ICMP socket instead. */
-suspend fun pingReachable(address: String, timeoutSeconds: Int = 2): Boolean = withContext(Dispatchers.IO) {
+/**
+ * Apps can't open raw sockets; the system ping uses an unprivileged ICMP socket instead.
+ * It can't resolve VPN names such as NetBird's, so [address] is resolved here, over [network] if given.
+ */
+suspend fun pingReachable(network: Network?, address: String, deadlineSeconds: Int = 3): Boolean = withContext(Dispatchers.IO) {
     try {
-        // Not reading the output: a single ping's fits the pipe buffer, and reading would wait out a slow DNS lookup past the deadline.
-        val process = ProcessBuilder("/system/bin/ping", "-c", "1", "-W", "$timeoutSeconds", address)
+        val ip = resolve(network, address).first()
+        val binary = if (ip is Inet6Address) "/system/bin/ping6" else "/system/bin/ping"
+        // Repeats until one reply or the deadline: the first packet can be lost while a VPN tunnel is set up on demand.
+        // Not reading the output: a few pings' fit the pipe buffer.
+        val process = ProcessBuilder(binary, "-c", "1", "-i", "0.5", "-w", "$deadlineSeconds", ip.hostAddress)
             .redirectErrorStream(true).start()
-        val exited = process.waitFor(timeoutSeconds + 1L, TimeUnit.SECONDS)
+        val exited = process.waitFor(deadlineSeconds + 1L, TimeUnit.SECONDS)
         process.destroy()
         exited && process.exitValue() == 0
     } catch (_: IOException) {
         false
+    }
+}
+
+private fun resolve(network: Network?, address: String): Array<InetAddress> =
+    network?.getAllByName(address) ?: InetAddress.getAllByName(address)
+
+/** True when one of [addresses] lies in a subnet the Wi-Fi [network] is directly attached to. */
+suspend fun inWifiSubnet(context: Context, network: Network, addresses: List<String>): Boolean = withContext(Dispatchers.IO) {
+    val links = context.getSystemService(ConnectivityManager::class.java).getLinkProperties(network)?.linkAddresses.orEmpty()
+    addresses.any { address ->
+        val ips = try {
+            resolve(network, address).toList()
+        } catch (_: IOException) {
+            emptyList()
+        }
+        ips.any { ip -> links.any { inSubnet(ip.address, it.address.address, it.prefixLength) } }
+    }
+}
+
+fun inSubnet(address: ByteArray, subnet: ByteArray, prefixLength: Int): Boolean {
+    if (address.size != subnet.size) return false
+    return address.indices.all { i ->
+        val bits = (prefixLength - i * 8).coerceIn(0, 8)
+        val mask = (0xFF shl (8 - bits)) and 0xFF
+        (address[i].toInt() and mask) == (subnet[i].toInt() and mask)
     }
 }

@@ -421,7 +421,7 @@ private fun ItemCard(
 @Composable
 private fun NetworkHeader(network: Network, presenceHost: String?, relays: List<String>, onClick: () -> Unit) {
     val summary = when {
-        presenceHost == null -> "Always counts as here"
+        presenceHost == null -> "Here when the Wi-Fi subnet matches"
         relays.isEmpty() -> "Here when $presenceHost answers · no relays"
         else -> "Here when $presenceHost answers · relays: ${relays.joinToString()}"
     }
