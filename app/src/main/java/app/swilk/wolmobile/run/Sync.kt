@@ -16,13 +16,9 @@ import app.swilk.wolmobile.tile.ActionTile1
 import app.swilk.wolmobile.tile.ActionTile2
 import app.swilk.wolmobile.tile.ActionTile3
 import app.swilk.wolmobile.ui.runIntent
-import app.swilk.wolmobile.widget.GridWidget
-import app.swilk.wolmobile.widget.SingleWidget
+import app.swilk.wolmobile.widget.ActionWidget
 
-suspend fun refreshWidgets(context: Context) {
-    SingleWidget().updateAll(context)
-    GridWidget().updateAll(context)
-}
+suspend fun refreshWidgets(context: Context) = ActionWidget().updateAll(context)
 
 fun refreshTiles(context: Context) {
     for (tile in listOf(ActionTile1::class.java, ActionTile2::class.java, ActionTile3::class.java)) {

@@ -13,8 +13,8 @@ import androidx.sqlite.driver.AndroidSQLiteDriver
         Network::class, NetworkRelay::class, Host::class, SshKey::class, SshTarget::class, Action::class, Settings::class,
         ActionState::class, RunLog::class, HostStatus::class, WidgetConfig::class,
     ],
-    version = 4,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 3, to = 4)],
+    version = 5,
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5)],
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun networks(): NetworkDao

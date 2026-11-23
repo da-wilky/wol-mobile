@@ -23,6 +23,14 @@ fun enqueueRun(context: Context, actionId: Long) {
     WorkManager.getInstance(context).enqueueUniqueWork("run-$actionId", ExistingWorkPolicy.KEEP, request)
 }
 
+fun enqueueClearResult(context: Context, actionId: Long, delayMs: Long) {
+    val request = OneTimeWorkRequestBuilder<ClearResultWorker>()
+        .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+        .setInputData(workDataOf(KEY_ACTION_ID to actionId))
+        .build()
+    WorkManager.getInstance(context).enqueueUniqueWork("clear-$actionId", ExistingWorkPolicy.REPLACE, request)
+}
+
 fun enqueuePoll(context: Context, label: String, hostId: Long, expectUp: Boolean) {
     val request = OneTimeWorkRequestBuilder<PollHostWorker>()
         .setInputData(workDataOf(KEY_LABEL to label, KEY_HOST_ID to hostId, KEY_EXPECT_UP to expectUp))

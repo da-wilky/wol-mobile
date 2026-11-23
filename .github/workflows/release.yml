@@ -11,8 +11,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: cachix/install-nix-action@v32
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
       - name: Build signed APK
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -24,6 +24,6 @@ jobs:
           export WOL_KEYSTORE="$RUNNER_TEMP/release.jks"
           nix develop -c ./gradlew --no-daemon testDebugUnitTest assembleRelease -PappVersion="${GITHUB_REF_NAME#v}"
           mv app/build/outputs/apk/release/app-release.apk "wolmobile-$GITHUB_REF_NAME.apk"
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           files: wolmobile-*.apk

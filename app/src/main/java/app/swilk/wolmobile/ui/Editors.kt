@@ -1,5 +1,6 @@
 package app.swilk.wolmobile.ui
 
+import android.app.KeyguardManager
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -67,7 +68,7 @@ fun HostEditor(id: Long?, done: () -> Unit) {
     }
     LaunchedEffect(id) {
         if (id == null) return@LaunchedEffect
-        usages = dao.actionCount(id)
+        usages = dao.wakeActionCount(id)
         if (loaded) return@LaunchedEffect
         dao.get(id)?.let {
             name = it.name; mac = it.mac; networkId = it.networkId; wolPort = it.wolPort.toString()
@@ -101,7 +102,7 @@ fun HostEditor(id: Long?, done: () -> Unit) {
         deleteWarning = id?.let { cascadeWarning(usages) },
         onDelete = {
             scope.launch {
-                dao.get(id!!)?.let { dao.delete(it) }
+                dao.get(id!!)?.let { dao.deleteWithWakeActions(it) }
                 onActionsChanged(context)
                 done()
             }
@@ -195,11 +196,11 @@ fun TargetEditor(id: Long?, done: () -> Unit) {
         }
         FormSection(
             "Host key",
-            "The server's key is trusted on the first connection and checked on every later one.",
+            "Test connection pins the server's key; every later connection must present the same one. Actions using this target only run once it's pinned.",
         ) {
             val pinned = hostKey
             if (pinned == null) {
-                Text("Not pinned yet", style = MaterialTheme.typography.bodyMedium)
+                Text("Not pinned yet: test the connection", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             } else {
                 Text(fingerprint(pinned), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
             }
@@ -331,6 +332,9 @@ fun ActionEditor(id: Long?, done: () -> Unit) {
         FormSection("Behaviour") {
             SwitchRow("Confirm before running", confirm, "Ask before running from the app, widgets, tiles and shortcuts.") { confirm = it }
             SwitchRow("Require unlock", unlock, "Ask for fingerprint or screen lock before running, from anywhere.") { unlock = it }
+            if (unlock && !context.getSystemService(KeyguardManager::class.java).isDeviceSecure) {
+                Text("This phone has no screen lock, so the action won't run until you set one.", color = MaterialTheme.colorScheme.error)
+            }
             SwitchRow("App shortcut", shortcut, "Show when long-pressing the app icon.") { shortcut = it }
             if (id != null) {
                 OutlinedButton(onClick = {

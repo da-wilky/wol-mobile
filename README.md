@@ -37,7 +37,7 @@ Wake-on-LAN and SSH actions for Android, from home-screen widgets, Quick Setting
   - pinned home-screen icons that you can drop into folders.
 - **Guarded.** Per action, you can require a confirmation, a fingerprint or the screen lock, from every trigger.
 - **Feedback.** Running, success and failure states on widgets. A notification when something fails, and a log of recent runs with their output.
-- **Private by design.** No accounts, no cloud and no backups. Private keys are encrypted with an Android Keystore key, and SSH host keys are pinned on first use.
+- **Private by design.** No accounts, no cloud and no backups. Private keys are encrypted with an Android Keystore key, and SSH host keys are pinned when you test a connection, never silently in the background.
 - **Drag to reorder** your actions.
 
 ## How waking works
@@ -137,15 +137,15 @@ Local signed build: export `WOL_KEYSTORE` (path), `WOL_KEYSTORE_PASSWORD`, `WOL_
    command="sudo /usr/sbin/poweroff",restrict ssh-ed25519 AAAA… wolmobile-poweroff
    ```
    with a matching sudoers rule, e.g. `user ALL=(root) NOPASSWD: /usr/sbin/poweroff`.
-2. **SSH** tab: add targets (address, user, key). The host key is pinned on first connect.
+2. **SSH** tab: add targets (address, user, key), then *Test connection* to pin the host key. Actions using an unpinned target refuse to run.
 3. **Hosts** tab, network header (a fresh install has "Home"):
-   - *Presence*: an address only reachable on that LAN, e.g. the Pi's LAN IP. Reachable over Wi-Fi (bypassing the VPN) → you're on that network → direct magic packet.
+   - *Presence*: an address only reachable on that LAN, e.g. the Pi's LAN IP. Reachable over Wi-Fi (bypassing the VPN) → you're on that network → direct magic packet. Optionally *Pin host key* (needs SSH on the port) so another Wi-Fi where the same address answers doesn't count as home.
    - *Wake*: broadcast address and the relay command, e.g. `wakeonlan {mac}` (install `wakeonlan` on the relays).
    - *Relays*: SSH targets on that LAN, tried in order until one runs the command successfully. A `command=`-restricted key ignores the requested command, so the relay key needs either no restriction or a wrapper that validates `$SSH_ORIGINAL_COMMAND`.
 4. **Hosts** tab: MAC, network, and optionally a TCP port for status checks (e.g. 22). After a wake, a host that doesn't answer within 2 minutes is reported as failed.
 5. **Settings** → *Quick Settings tiles*: assign actions to the three tile slots, then add the tiles from the Quick Settings edit panel.
 6. **Actions** tab: wake or SSH actions; optionally require unlock or confirmation, or add to app shortcuts (long-press the app icon).
-7. Long-press the home screen → Widgets → *WoL action* (1×1) or *WoL actions* (resizable grid).
+7. Long-press the home screen → Widgets → *WoL action* (1×1) or *WoL actions* (resizable grid). Change a placed widget's actions and their order in **Settings** → *Home screen widgets*.
 
 ## Notes
 

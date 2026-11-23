@@ -15,6 +15,8 @@ data class Network(
     val probePort: Int,
     val broadcastAddress: String,
     val relayCommand: String,
+    /** If set, presence also requires the probe to present this SSH host key, so another LAN with the same address doesn't count. */
+    @ColumnInfo(defaultValue = "NULL") val probeHostKey: String? = null,
 )
 
 @Entity(
@@ -66,10 +68,10 @@ data class NetworkRelay(val networkId: Long, val position: Int, val targetId: Lo
 
 enum class ActionType { WAKE, SSH }
 
-/** For SSH actions, [hostId] is optional and names the host whose status the command changes. */
+/** For SSH actions, [hostId] is optional and names the host whose status the command changes. Wake actions are deleted with their host by [HostDao.deleteWithWakeActions]. */
 @Entity(
     foreignKeys = [
-        ForeignKey(Host::class, ["id"], ["hostId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(Host::class, ["id"], ["hostId"], onDelete = ForeignKey.SET_NULL),
         ForeignKey(SshTarget::class, ["id"], ["targetId"], onDelete = ForeignKey.CASCADE),
     ],
     indices = [Index("hostId"), Index("targetId")],

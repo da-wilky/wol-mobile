@@ -31,6 +31,11 @@ fun notifyFailure(context: Context, label: String, outcome: Outcome) {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
     val text = listOf(outcome.message, outcome.output).filter { it.isNotBlank() }.joinToString("\n")
+    // Command output can be sensitive; the lock screen only shows which action failed.
+    val public = Notification.Builder(context, CHANNEL_FAILURES)
+        .setSmallIcon(R.drawable.ic_power)
+        .setContentTitle("$label failed")
+        .build()
     val notification = Notification.Builder(context, CHANNEL_FAILURES)
         .setSmallIcon(R.drawable.ic_power)
         .setContentTitle("$label failed")
@@ -38,6 +43,8 @@ fun notifyFailure(context: Context, label: String, outcome: Outcome) {
         .setStyle(Notification.BigTextStyle().bigText(text))
         .setContentIntent(open)
         .setAutoCancel(true)
+        .setVisibility(Notification.VISIBILITY_PRIVATE)
+        .setPublicVersion(public)
         .build()
     context.getSystemService(NotificationManager::class.java).notify(label.hashCode(), notification)
 }

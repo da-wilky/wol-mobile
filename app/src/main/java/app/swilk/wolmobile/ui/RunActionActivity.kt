@@ -1,5 +1,6 @@
 package app.swilk.wolmobile.ui
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_STRONG
@@ -49,6 +50,10 @@ class RunActionActivity : ComponentActivity() {
     }
 
     private fun unlock(action: Action, onUnlocked: () -> Unit) {
+        if (!getSystemService(KeyguardManager::class.java).isDeviceSecure) {
+            Toast.makeText(this, "${action.label} requires unlock, but this phone has no screen lock. Set one, or turn off Require unlock.", Toast.LENGTH_LONG).show()
+            return finish()
+        }
         BiometricPrompt.Builder(this)
             .setTitle("Run ${action.label}")
             .setAllowedAuthenticators(BIOMETRIC_STRONG or DEVICE_CREDENTIAL)

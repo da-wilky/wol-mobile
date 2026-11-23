@@ -12,6 +12,7 @@ import app.swilk.wolmobile.net.tcpReachable
 import app.swilk.wolmobile.net.wifiNetwork
 import app.swilk.wolmobile.ssh.KeyCipher
 import app.swilk.wolmobile.ssh.SshResult
+import app.swilk.wolmobile.ssh.probeHostKey
 import app.swilk.wolmobile.ssh.runSsh
 import net.schmizz.sshj.userauth.UserAuthException
 import java.io.IOException
@@ -58,7 +59,13 @@ private suspend fun wake(context: Context, host: Host): Outcome {
     val wifi = wifiNetwork(context)
     val probe = network.probeAddress
     val failures = mutableListOf<String>()
-    if (probe == null || wifi != null && tcpReachable(wifi, probe, network.probePort)) {
+    val home = when {
+        probe == null -> true
+        wifi == null -> false
+        network.probeHostKey != null -> probeHostKey(wifi, probe, network.probePort) == network.probeHostKey
+        else -> tcpReachable(wifi, probe, network.probePort)
+    }
+    if (home) {
         try {
             sendMagicPacket(wifi, host.mac, network.broadcastAddress, host.wolPort)
             return Outcome(true, "Magic packet sent to ${host.mac}")
@@ -86,11 +93,16 @@ private suspend fun connect(context: Context, target: SshTarget, command: String
 }
 
 private suspend fun ssh(context: Context, target: SshTarget, command: String): Outcome {
+    // Pin only in the editor's test, never on whatever network a background run happens to be on.
+    if (target.hostKey == null) throw IOException("${target.name}'s host key isn't pinned yet. Open the SSH target and tap Test connection.")
     val result = connect(context, target, command)
-    if (target.hostKey == null) context.db.targets().setHostKey(target.id, result.hostKey)
     return when (result.exitStatus) {
         0 -> Outcome(true, "Ran on ${target.name}", result.output)
         null -> Outcome(true, "${target.name} closed the connection without an exit status", result.output)
         else -> Outcome(false, "Exit status ${result.exitStatus} on ${target.name}", result.output)
     }
 }
+
+/** The host key [address]:[port] presents over Wi-Fi, or null when off Wi-Fi or it doesn't answer. */
+suspend fun presenceHostKey(context: Context, address: String, port: Int): String? =
+    wifiNetwork(context)?.let { probeHostKey(it, address, port) }

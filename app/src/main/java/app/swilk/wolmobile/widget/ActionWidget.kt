@@ -3,6 +3,7 @@ package app.swilk.wolmobile.widget
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
+import androidx.annotation.DrawableRes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
@@ -54,22 +55,30 @@ import app.swilk.wolmobile.data.RunState
 import app.swilk.wolmobile.db
 import app.swilk.wolmobile.run.enqueueRun
 import app.swilk.wolmobile.run.formatAge
+import app.swilk.wolmobile.run.refreshWidgets
 import app.swilk.wolmobile.run.syncPeriodicStatus
 import app.swilk.wolmobile.ui.runIntent
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 private val ActionIdKey = ActionParameters.Key<Long>("actionId")
-private val CellSize = 72.dp
+internal val CellSize = 72.dp
 
 private class Item(val action: Action, val state: RunState, val status: HostStatus?)
 private class WidgetData(val configured: Boolean, val showStatus: Boolean, val items: List<Item>)
 
-abstract class ActionWidget(private val grid: Boolean) : GlanceAppWidget() {
+/** True for the resizable grid, false for the single-action widget. */
+fun isGridWidget(context: Context, appWidgetId: Int): Boolean =
+    AppWidgetManager.getInstance(context).getAppWidgetInfo(appWidgetId)?.provider?.className == GridWidgetReceiver::class.java.name
+
+// One class for both kinds: Glance finds widgets by their GlanceAppWidget class, and R8 merged two near-identical subclasses into one,
+// so updating the single widgets re-rendered grids as a single cell.
+class ActionWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
+        val grid = isGridWidget(context, appWidgetId)
         val db = context.db
         val data = combine(
             db.widgets().flow(appWidgetId), db.actions().all(), db.runs().states(), db.status().all(),
@@ -100,9 +109,6 @@ abstract class ActionWidget(private val grid: Boolean) : GlanceAppWidget() {
     }
 }
 
-class SingleWidget : ActionWidget(grid = false)
-class GridWidget : ActionWidget(grid = true)
-
 @Composable
 private fun Grid(data: WidgetData) {
     val columns = (LocalSize.current.width / CellSize).toInt().coerceAtLeast(1)
@@ -131,8 +137,7 @@ private fun Cell(item: Item, showStatus: Boolean, modifier: GlanceModifier) {
         actionRunCallback<RunCallback>(actionParametersOf(ActionIdKey to item.action.id))
     }
     val detail = item.status?.takeIf { showStatus && item.state == RunState.IDLE }?.let {
-        val age = formatAge(System.currentTimeMillis() - it.checkedAt)
-        if (it.up) "● up · $age" else "○ down · $age"
+        statusLine(it)
     }
     val iconModifier = GlanceModifier.size(20.dp)
     Column(
@@ -143,13 +148,7 @@ private fun Cell(item: Item, showStatus: Boolean, modifier: GlanceModifier) {
         when (item.state) {
             RunState.RUNNING -> CircularProgressIndicator(iconModifier, color = foreground)
             else -> Image(
-                ImageProvider(
-                    when (item.state) {
-                        RunState.OK -> R.drawable.ic_check
-                        RunState.FAILED -> R.drawable.ic_error
-                        else -> if (item.action.type == ActionType.WAKE) R.drawable.ic_power else R.drawable.ic_terminal
-                    },
-                ),
+                ImageProvider(cellIcon(item.action, item.state)),
                 contentDescription = null,
                 modifier = iconModifier,
                 colorFilter = ColorFilter.tint(foreground),
@@ -183,8 +182,23 @@ private fun Unconfigured(appWidgetId: Int) {
 
 class RunCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        enqueueRun(context, parameters[ActionIdKey]!!)
+        val action = context.db.actions().get(parameters[ActionIdKey]!!) ?: return
+        // A widget drawn before Confirm or Require unlock was turned on must not skip them; redrawing routes the next tap through them.
+        if (action.interactive) return refreshWidgets(context)
+        enqueueRun(context, action.id)
     }
+}
+
+@DrawableRes
+fun cellIcon(action: Action, state: RunState): Int = when (state) {
+    RunState.OK -> R.drawable.ic_check
+    RunState.FAILED -> R.drawable.ic_error
+    else -> if (action.type == ActionType.WAKE) R.drawable.ic_power else R.drawable.ic_terminal
+}
+
+fun statusLine(status: HostStatus): String {
+    val age = formatAge(System.currentTimeMillis() - status.checkedAt)
+    return if (status.up) "● up · $age" else "○ down · $age"
 }
 
 abstract class ActionWidgetReceiver : GlanceAppWidgetReceiver() {
@@ -199,9 +213,9 @@ abstract class ActionWidgetReceiver : GlanceAppWidgetReceiver() {
 }
 
 class SingleWidgetReceiver : ActionWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = SingleWidget()
+    override val glanceAppWidget: GlanceAppWidget = ActionWidget()
 }
 
 class GridWidgetReceiver : ActionWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = GridWidget()
+    override val glanceAppWidget: GlanceAppWidget = ActionWidget()
 }

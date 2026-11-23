@@ -1,7 +1,9 @@
 package app.swilk.wolmobile.ssh
 
+import android.net.Network
 import com.hierynomus.sshj.userauth.keyprovider.OpenSSHKeyV1KeyFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -81,8 +83,17 @@ suspend fun runSsh(
                 val cmd = session.exec(command)
                 val output = StringBuilder()
                 val exitStatus = try {
+                    // Both streams share the channel window; reading them in turn stalls once the unread one fills it.
+                    // A failed child would cancel the whole scope, so stderr swallows the error stdout reports anyway.
+                    val stderr = async {
+                        try {
+                            IOUtils.readFully(cmd.errorStream).toString(Charsets.UTF_8.name())
+                        } catch (_: IOException) {
+                            ""
+                        }
+                    }
                     output.append(IOUtils.readFully(cmd.inputStream).toString(Charsets.UTF_8.name()))
-                    output.append(IOUtils.readFully(cmd.errorStream).toString(Charsets.UTF_8.name()))
+                    output.append(stderr.await())
                     cmd.join(timeoutSeconds, TimeUnit.SECONDS)
                     cmd.exitStatus
                 } catch (e: IOException) {
@@ -95,4 +106,27 @@ suspend fun runSsh(
             watchdog.cancel()
         }
     }
+}
+
+/** The host key [address]:[port] presents over [network], or null if it can't be reached. Stops after key exchange without logging in. */
+suspend fun probeHostKey(network: Network, address: String, port: Int): String? = withContext(Dispatchers.IO) {
+    var seen: String? = null
+    SSHClient(DefaultConfig()).use { client ->
+        client.socketFactory = network.socketFactory
+        client.connectTimeout = 1_500
+        client.timeout = 3_000
+        client.addHostKeyVerifier(object : HostKeyVerifier {
+            override fun verify(hostname: String, port: Int, key: PublicKey): Boolean {
+                seen = encodeHostKey(key)
+                return false
+            }
+
+            override fun findExistingAlgorithms(hostname: String, port: Int): List<String> = emptyList()
+        })
+        try {
+            client.connect(address, port)
+        } catch (_: IOException) {
+        }
+    }
+    seen
 }

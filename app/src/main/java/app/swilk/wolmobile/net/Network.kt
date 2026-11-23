@@ -61,14 +61,13 @@ suspend fun tcpReachable(network: Network?, address: String, port: Int, timeoutM
 /** Apps can't open raw sockets; the system ping uses an unprivileged ICMP socket instead. */
 suspend fun pingReachable(address: String, timeoutSeconds: Int = 2): Boolean = withContext(Dispatchers.IO) {
     try {
+        // Not reading the output: a single ping's fits the pipe buffer, and reading would wait out a slow DNS lookup past the deadline.
         val process = ProcessBuilder("/system/bin/ping", "-c", "1", "-W", "$timeoutSeconds", address)
             .redirectErrorStream(true).start()
-        process.inputStream.use { it.readBytes() }
-        if (!process.waitFor(timeoutSeconds + 1L, TimeUnit.SECONDS)) process.destroy()
-        process.exitValue() == 0
+        val exited = process.waitFor(timeoutSeconds + 1L, TimeUnit.SECONDS)
+        process.destroy()
+        exited && process.exitValue() == 0
     } catch (_: IOException) {
-        false
-    } catch (_: IllegalThreadStateException) {
         false
     }
 }

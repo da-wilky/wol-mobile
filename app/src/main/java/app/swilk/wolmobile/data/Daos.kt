@@ -4,6 +4,7 @@ import androidx.room3.Dao
 import androidx.room3.Delete
 import androidx.room3.Insert
 import androidx.room3.Query
+import androidx.room3.Transaction
 import androidx.room3.Update
 import androidx.room3.Upsert
 import kotlinx.coroutines.flow.Flow
@@ -19,14 +20,24 @@ interface HostDao {
     @Query("SELECT * FROM Host WHERE id = :id")
     suspend fun get(id: Long): Host?
 
-    @Query("SELECT COUNT(*) FROM Action WHERE hostId = :id")
-    suspend fun actionCount(id: Long): Int
+    @Query("SELECT COUNT(*) FROM Action WHERE hostId = :id AND type = 'WAKE'")
+    suspend fun wakeActionCount(id: Long): Int
 
     @Upsert
     suspend fun upsert(host: Host)
 
+    @Query("DELETE FROM Action WHERE hostId = :id AND type = 'WAKE'")
+    suspend fun deleteWakeActions(id: Long)
+
     @Delete
     suspend fun delete(host: Host)
+
+    /** SSH actions only follow the host's status and keep running without it. */
+    @Transaction
+    suspend fun deleteWithWakeActions(host: Host) {
+        deleteWakeActions(host.id)
+        delete(host)
+    }
 }
 
 @Dao
@@ -57,9 +68,6 @@ interface SshTargetDao {
 
     @Query("SELECT COUNT(*) FROM Action WHERE targetId = :id")
     suspend fun actionCount(id: Long): Int
-
-    @Query("UPDATE SshTarget SET hostKey = :hostKey WHERE id = :id")
-    suspend fun setHostKey(id: Long, hostKey: String?)
 
     @Upsert
     suspend fun upsert(target: SshTarget)
@@ -114,6 +122,9 @@ interface RunDao {
     @Upsert
     suspend fun setState(state: ActionState)
 
+    @Query("UPDATE ActionState SET state = 'IDLE' WHERE actionId = :id AND state IN ('OK', 'FAILED')")
+    suspend fun clearResult(id: Long)
+
     @Query("SELECT * FROM RunLog ORDER BY id DESC")
     fun log(): Flow<List<RunLog>>
 
@@ -138,6 +149,9 @@ interface StatusDao {
 
 @Dao
 interface WidgetDao {
+    @Query("SELECT * FROM WidgetConfig")
+    fun all(): Flow<List<WidgetConfig>>
+
     @Query("SELECT * FROM WidgetConfig WHERE appWidgetId = :id")
     fun flow(id: Int): Flow<WidgetConfig?>
 

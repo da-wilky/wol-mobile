@@ -57,8 +57,7 @@ class RunActionWorker(context: Context, params: WorkerParameters) : CoroutineWor
                 upBefore != null -> enqueuePoll(context, action.label, host.id, expectUp = !upBefore)
             }
         }
-        delay(RESULT_DISPLAY_MS)
-        show(RunState.IDLE)
+        enqueueClearResult(context, action.id, RESULT_DISPLAY_MS)
         return Result.success()
     }
 }
@@ -83,6 +82,15 @@ class PollHostWorker(context: Context, params: WorkerParameters) : CoroutineWork
 class StatusWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         checkAllHosts(applicationContext)
+        return Result.success()
+    }
+}
+
+/** Returns a finished action's widget cell to idle; separate so the run's unique work ends and the next tap isn't dropped. */
+class ClearResultWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        applicationContext.db.runs().clearResult(inputData.getLong(KEY_ACTION_ID, -1))
+        refreshWidgets(applicationContext)
         return Result.success()
     }
 }
