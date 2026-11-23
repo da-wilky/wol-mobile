@@ -202,10 +202,10 @@ fun HostEditor(id: Long?, open: (NavKey) -> Unit, done: () -> Unit) {
             }
         }
         FormSection("Status check") {
-            SwitchRow("Check status", checkStatus, "Pings the host, or connects to a TCP port if you set one, e.g. 22 when ping is blocked.") { checkStatus = it }
+            SwitchRow("Check status", checkStatus, "Pings the host, and also connects to a TCP port if you set one, e.g. 22 where ping is blocked. Up if either answers.") { checkStatus = it }
             if (checkStatus) {
                 if (!hasAddress) Text("Set an address to check.", color = MaterialTheme.colorScheme.error)
-                Field("TCP port", statusPort, KeyboardType.Number, error = !statusValid, placeholder = "Empty to ping") { statusPort = it }
+                Field("TCP port", statusPort, KeyboardType.Number, error = !statusValid, placeholder = "Optional, e.g. 22") { statusPort = it }
             }
         }
     }

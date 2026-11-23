@@ -10,7 +10,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
-/** Probes the status port, or pings without one, at the address [route] picks. Null if the host isn't checked. */
+/** Pings, and connects to the status port if set, at the address [route] picks; up if either answers. Null if the host isn't checked. */
 suspend fun checkHost(context: Context, host: Host): Boolean? {
     if (!host.checkStatus) {
         context.db.status().clear(host.id)
@@ -18,7 +18,10 @@ suspend fun checkHost(context: Context, host: Host): Boolean? {
     }
     val route = route(context, host) ?: return null
     // Ping can't be bound to Wi-Fi; at home the LAN address is normally routed there anyway.
-    val up = host.statusPort?.let { tcpReachable(route.network, route.address, it, timeoutMs = 2_000) } ?: pingReachable(route.network, route.address)
+    val up = coroutineScope {
+        val port = host.statusPort?.let { async { tcpReachable(route.network, route.address, it, timeoutMs = 2_000) } }
+        pingReachable(route.network, route.address) || port?.await() == true
+    }
     context.db.status().set(HostStatus(host.id, up, System.currentTimeMillis()))
     return up
 }
